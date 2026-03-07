@@ -1,0 +1,10 @@
+{
+  "id": "marginalia",
+  "name": "marginalia",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Scan your vault for quality issues, suggest related links, and auto-fix frontmatter — powered by the marginalia CLI.",
+  "author": "hale-bopp-data",
+  "authorUrl": "https://github.com/hale-bopp-data/marginalia",
+  "isDesktopOnly": true
+}

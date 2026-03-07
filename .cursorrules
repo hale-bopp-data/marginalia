@@ -1,0 +1,86 @@
+# marginalia — .cursorrules
+# Regole operative per Cursor AI in questo repository.
+
+## Progetto
+marginalia è un CLI Python per la qualità dei vault Markdown.
+Repo: https://github.com/hale-bopp-data/marginalia
+Org: hale-bopp-data (open source MIT)
+
+## Setup & comandi rapidi
+```bash
+pip install -e .                          # installa in modalità editable
+python -m pytest tests/ -v               # test suite
+marginalia scan . --json                  # smoke test scan
+marginalia link . --json                  # smoke test link
+cd obsidian-plugin && npm ci && npm run build  # build plugin
+ruff check marginalia/ --select=E,F,W --ignore=E501  # lint
+```
+
+## Struttura package Python
+```
+marginalia/cli.py          ← entrypoint, 10 subcommand
+marginalia/scanner.py      ← find_md_files (multi-path), scan_file, build_graph
+marginalia/linker.py       ← TF-IDF engine, build_suggestions, run_link
+marginalia/config.py       ← marginalia.yaml loader (zero deps)
+marginalia/fixer.py        ← 4 Giri fix pipeline
+marginalia/tags.py         ← taxonomy
+marginalia/brain.py        ← AI (OpenRouter/OpenAI/Ollama via urllib)
+obsidian-plugin/src/main.ts ← TypeScript Obsidian plugin
+tests/test_linker.py       ← pytest
+```
+
+## Principi di codice
+
+### Zero dipendenze esterne per i moduli core
+- scanner, linker, config, fixer, tags, obsidian, index_builder: SOLO stdlib
+- brain.py: urllib (non requests)
+- Nessun PyYAML — usare _parse_yaml() in config.py
+
+### Python >= 3.9
+- Type hints sì, `X | Y` union (3.10+) da evitare nei moduli importati da 3.9
+
+### Encoding
+- Sempre `encoding="utf-8", errors="replace"` su read_text/write_text
+
+### Dry-run by default
+- Ogni operazione che modifica file utente richiede --apply
+- apply phase: backup sempre prima di write (file .bak in run-dir)
+
+### JSON output
+- Ogni subcommand deve supportare --json per output machine-readable
+
+## Scoring formula (linker.py) — NON modificare i coefficienti senza test
+```
+score = cosine + (0.08 × tag_overlap) + (0.04 × same_dir) + (0.02 × same_top_dir)
+```
+
+## Multi-vault (scan e link)
+- `args.vaults` è una lista (`nargs="*"`, default `["."]`)
+- `find_md_files()` accetta sia singolo path che lista di path
+- In multi-vault, i path vengono prefissati con `vault.name/` per evitare collisioni
+
+## Config auto-discovery
+- marginalia.yaml cercato in: cwd → vault dir(s)
+- CLI args hanno sempre precedenza sul config file
+
+## Obsidian plugin (TypeScript)
+- obsidian-plugin/src/main.ts — thin wrapper, chiama CLI via child_process
+- Zero logica di business nel plugin — tutto nel Python CLI
+- Desktop-only (isDesktopOnly: true in manifest.json)
+- Build: esbuild → main.js
+
+## CI/CD
+- .github/workflows/ci.yml
+- Matrix: Python 3.9, 3.10, 3.11, 3.12
+- Jobs: test → lint (ruff) → obsidian-plugin build
+- Artifact: main.js + manifest.json + styles.css
+
+## Git workflow
+- Branch: feature → main (no develop)
+- Merge: no fast-forward
+- Tag semver per release PyPI
+
+## Connessioni & PAT
+Repo open source — nessun PAT interno EasyWay.
+GitHub token standard per CI (GITHUB_TOKEN automatico).
+Per release PyPI: secret PYPI_TOKEN nel repository GitHub.

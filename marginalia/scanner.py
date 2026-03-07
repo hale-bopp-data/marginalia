@@ -11,15 +11,33 @@ FM_REQUIRED_DEFAULT = ["title", "tags"]
 
 
 def find_md_files(vault_path, skip_dirs=None, skip_files=None):
-    """Find all .md files in a vault, respecting skip rules."""
+    """
+    Find all .md files in one or more vault paths, respecting skip rules.
+
+    vault_path may be a single path (str/Path) or a list of paths.
+    Duplicate files (same resolved path) are deduplicated.
+    """
     skip_d = skip_dirs or SKIP_DIRS
     skip_f = skip_files or SKIP_FILES
+
+    # Normalise to list
+    if isinstance(vault_path, (str, Path)):
+        paths = [Path(vault_path)]
+    else:
+        paths = [Path(p) for p in vault_path]
+
+    seen = set()
     files = []
-    for root, dirs, filenames in os.walk(vault_path):
-        dirs[:] = [d for d in dirs if d not in skip_d]
-        for f in filenames:
-            if f.endswith(".md") and f not in skip_f:
-                files.append(Path(root) / f)
+    for root_path in paths:
+        for root, dirs, filenames in os.walk(root_path):
+            dirs[:] = [d for d in dirs if d not in skip_d]
+            for f in filenames:
+                if f.endswith(".md") and f not in skip_f:
+                    fp = Path(root) / f
+                    resolved = fp.resolve()
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        files.append(fp)
     return files
 
 

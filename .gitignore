@@ -5,3 +5,6 @@ dist/
 build/
 .eggs/
 .venv/
+
+# Repo semaphore (agent lock)
+.semaphore.json

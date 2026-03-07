@@ -24,9 +24,9 @@ from .scanner import find_md_files, parse_frontmatter, extract_tags
 def _llm_call(prompt, system_prompt="You are a helpful assistant for organizing Markdown notes.",
               api_key=None, base_url=None, model=None, max_tokens=500):
     """Call an OpenAI-compatible LLM API."""
-    api_key = api_key or os.environ.get("LEVI_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
-    base_url = base_url or os.environ.get("LEVI_API_URL", "https://openrouter.ai/api/v1")
-    model = model or os.environ.get("LEVI_MODEL", "deepseek/deepseek-chat")
+    api_key = api_key or os.environ.get("MARGINALIA_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+    base_url = base_url or os.environ.get("MARGINALIA_API_URL", "https://openrouter.ai/api/v1")
+    model = model or os.environ.get("MARGINALIA_MODEL", "deepseek/deepseek-chat")
 
     if not api_key:
         return None
