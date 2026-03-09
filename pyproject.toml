@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marginalia"
-version = "0.1.0"
+version = "1.0.0"
 description = "Markdown vault quality scanner for Obsidian, academics, and documentation teams"
 readme = "README.md"
 license = "MIT"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["markdown", "obsidian", "vault", "documentation", "linting", "frontmatter", "tags", "pkm", "knowledge-management"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
