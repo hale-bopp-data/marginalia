@@ -32,6 +32,9 @@ classifiers = [
 [project.scripts]
 marginalia = "marginalia.cli:main"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [project.urls]
 Homepage = "https://github.com/hale-bopp-data/marginalia"
 Repository = "https://github.com/hale-bopp-data/marginalia"

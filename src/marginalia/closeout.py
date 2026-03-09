@@ -23,9 +23,10 @@ REPOS = {
     "wiki": "wiki",
     "agents": "agents",
     "infra": "infra",
-    "portal": "../EasyWayDataPortal",
+    "portal": "portal",
     "ado": "ado",
     "n8n": "n8n",
+    "marginalia": "marginalia",
 }
 
 # Target files for closeout (relative to base dir)
