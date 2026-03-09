@@ -1,4 +1,4 @@
-"""CLI entry point for marginalia — 10 commands: scan, check, fix, fix-tags, discover, index, css, graph, link, ai."""
+"""CLI entry point for marginalia — 12 commands: scan, check, fix, fix-tags, discover, index, css, graph, link, eval, ai, closeout."""
 
 import argparse
 import json
@@ -471,6 +471,49 @@ def cmd_eval(args):
     sys.exit(0)
 
 
+def cmd_closeout(args):
+    from .closeout import run_closeout
+    base_dir = Path(args.base).resolve() if args.base else Path.cwd()
+    sessions_history = args.sessions_history or None
+
+    result = run_closeout(
+        base_dir=base_dir,
+        session_number=args.session_number,
+        session_title=args.title,
+        write=args.write,
+        use_ai=args.ai,
+        model=args.model,
+        sessions_history_path=sessions_history,
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        print(f"marginalia {__version__} -- Session Closeout ({result['mode']})\n{'=' * 50}")
+        print(f"Session: S{result['session_number']}")
+        print(f"Date:    {result['date']}")
+        print(f"Title:   {result['title']}")
+        print(f"AI:      {'yes' if result['ai_used'] else 'no'}")
+        print(f"Repos:   {', '.join(result['repos_scanned'])}")
+        print(f"Commits: {result['commits_found']}")
+        print(f"PRs:     {', '.join(f'#{p}' for p in result['prs']) or '(none)'}\n")
+
+        if result["files_written"]:
+            print("Files written:")
+            for f in result["files_written"]:
+                print(f"  {f}")
+        else:
+            print("--- Platform Memory Entry ---")
+            print(result["template"]["platform_memory_entry"][:500])
+            print("\n--- Chronicle ---")
+            print(f"  File: {result['template']['chronicle_filename']}")
+            print(f"  Preview: {result['template']['chronicle_content'][:200]}...")
+
+            if result["mode"] == "DRY RUN":
+                print("\nRun with --write to create files.")
+    sys.exit(0)
+
+
 def cmd_ai(args):
     from . import brain
     vault = _ensure_vault(args.vault)
@@ -595,6 +638,16 @@ def main():
     pc.add_argument("--after", required=True, help="Path to after snapshot JSON")
     pc.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("closeout", help="Session closeout: collect git data, generate reports, write files")
+    p.add_argument("session_number", type=int, help="Session number (e.g. 103)")
+    p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
+    p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
+    p.add_argument("--write", action="store_true", help="Write files (default: dry-run preview)")
+    p.add_argument("--ai", action="store_true", help="Use LLM to generate narrative (requires API key)")
+    p.add_argument("--model", help="LLM model override")
+    p.add_argument("--sessions-history", help="Path to sessions-history.md")
+    p.add_argument("--json", action="store_true")
+
     p = sub.add_parser("ai", help="AI-powered analysis (OpenRouter/OpenAI/Ollama)")
     p.add_argument("action", choices=["review", "tag", "connect", "frontmatter"])
     p.add_argument("vault", nargs="?", default=".")
@@ -610,7 +663,7 @@ def main():
 
     cmds = {"scan": cmd_scan, "check": cmd_check, "fix": cmd_fix, "fix-tags": cmd_fix_tags,
             "discover": cmd_discover, "index": cmd_index, "css": cmd_css, "graph": cmd_graph,
-            "link": cmd_link, "eval": cmd_eval, "ai": cmd_ai}
+            "link": cmd_link, "eval": cmd_eval, "ai": cmd_ai, "closeout": cmd_closeout}
     cmds[args.command](args)
 
 
