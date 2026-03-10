@@ -211,6 +211,17 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 
 marginalia uses only the Python standard library. No PyYAML, no external packages. Runs anywhere Python 3.9+ is installed.
 
+## Part of HALE-BOPP
+
+> *Sovereign by design. Cloud by choice.*
+
+marginalia is part of the [HALE-BOPP](https://github.com/hale-bopp-data) open-source ecosystem — portable, replicable tools for data and knowledge governance. Your vault quality runs where you decide, not where a vendor tells you.
+
+- [hale-bopp-db](https://github.com/hale-bopp-data/hale-bopp-db) — Schema governance for PostgreSQL
+- [hale-bopp-etl](https://github.com/hale-bopp-data/hale-bopp-etl) — Config-driven data orchestration
+- [hale-bopp-argos](https://github.com/hale-bopp-data/hale-bopp-argos) — Policy gating and quality checks
+- **marginalia** (this repo) — Markdown vault quality scanner
+
 ## License
 
 MIT
