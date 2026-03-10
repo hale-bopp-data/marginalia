@@ -75,6 +75,12 @@ score = cosine + (0.08 × tag_overlap) + (0.04 × same_dir) + (0.02 × same_top_
 - Jobs: test → lint (ruff) → obsidian-plugin build
 - Artifact: main.js + manifest.json + styles.css
 
+## Regola Benchmark — Misurare SEMPRE prima e dopo (S122)
+- Ogni modifica batch (`fix`, `fix-tags`, `link --apply`) richiede metriche prima/dopo
+- Prima: `marginalia scan <vault>` (issue count) + Qdrant chunk count + frontmatter %
+- Dopo: stesse metriche → tabella delta
+- Senza numeri non c'e miglioramento, c'e solo opinione
+
 ## Git workflow
 - Branch: feature → main (no develop)
 - Merge: no fast-forward

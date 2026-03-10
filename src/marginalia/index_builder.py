@@ -189,7 +189,7 @@ def build_tag_index(vault_path, output_dir=None):
             "# Tag Index: Unnamespaced Tags",
             "",
             f"> {sum(len(v) for v in flat_tags.values())} file references across {len(flat_tags)} flat tags",
-            "> These tags should be migrated to namespaces. Run: `levi fix-tags`",
+            "> These tags should be migrated to namespaces. Run: `marginalia fix-tags`",
             "",
         ]
 

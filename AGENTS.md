@@ -140,6 +140,28 @@ heading: "## See also"
 
 ---
 
+## Regola Benchmark — Misurare SEMPRE prima e dopo (S122)
+
+**Trigger**: ogni volta che si lancia `marginalia fix`, `fix-tags`, `link --apply`, o qualsiasi modifica batch a un vault.
+
+**Azione obbligatoria**:
+1. **PRIMA**: raccogliere metriche baseline
+   - `marginalia scan <vault>` → issue count per tipo
+   - Qdrant chunk count (se il vault è indicizzato)
+   - Frontmatter coverage (% file con frontmatter)
+2. **DOPO**: stesse metriche post-fix
+3. **DELTA**: presentare tabella prima/dopo con variazione %
+
+| Metrica | Prima | Dopo | Delta |
+|---|---|---|---|
+| Issue totali | X | Y | -Z% |
+| Chunk Qdrant | X | Y | +/-Z |
+| Frontmatter % | X% | Y% | +Z% |
+
+**Principio**: senza numeri non c'è miglioramento, c'è solo opinione.
+
+---
+
 ## Regole per agenti
 
 1. **MAI modificare i coefficienti di scoring** senza test che lo giustifichino.
