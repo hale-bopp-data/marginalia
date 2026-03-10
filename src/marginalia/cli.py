@@ -1,4 +1,4 @@
-"""CLI entry point for marginalia — 12 commands: scan, check, fix, fix-tags, discover, index, css, graph, link, eval, ai, closeout."""
+"""CLI entry point for marginalia — 13 commands: scan, check, fix, fix-tags, discover, index, css, graph, link, eval, ai, closeout, validate."""
 
 import argparse
 import json
@@ -149,6 +149,159 @@ def cmd_check(args):
     sys.exit(0 if not issues else 1)
 
 
+def _print_fix_report(result, vault):
+    """Print a detailed fix report with per-action, per-directory, and per-target stats."""
+    inv = result["giri"].get("0_inventory", {})
+    total_files = inv.get("total_files", 0)
+    with_fm = inv.get("with_frontmatter", 0)
+    without_fm = inv.get("without_frontmatter", 0)
+    pct = (with_fm * 100 // total_files) if total_files else 0
+
+    print(f"marginalia {__version__} -- Fix Pipeline ({result['mode']})")
+    print("=" * 56)
+    print(f"Vault: {vault}\n")
+    print(f"  Total files:           {total_files}")
+    print(f"  With frontmatter:      {with_fm} ({pct}%)")
+    print(f"  Without frontmatter:   {without_fm}")
+    print(f"  Proposed fixes:        {result['total_fixes']}")
+    print()
+
+    # --- Giro 1: Frontmatter ---
+    g1 = result["giri"].get("1_frontmatter", {})
+    details = g1.get("details", [])
+    if details or g1.get("fixes"):
+        actions = {}
+        dirs = {}
+        for d in details:
+            a = d.get("action", "unknown")
+            actions[a] = actions.get(a, 0) + 1
+            f = d.get("file", "")
+            dr = f.split("/")[0] if "/" in f else "(root)"
+            dirs[dr] = dirs.get(dr, 0) + 1
+        print(f"-- Giro 1: FRONTMATTER ({g1.get('fixes', len(details))} fixes) --")
+        print("  By action:")
+        for a, c in sorted(actions.items(), key=lambda x: -x[1]):
+            print(f"    {a:30s} {c:4d}")
+        print("  By directory (top 10):")
+        for d, c in sorted(dirs.items(), key=lambda x: -x[1])[:10]:
+            print(f"    {d + '/':30s} {c:4d}")
+        print()
+
+    # --- Giro 2: Tags ---
+    g2 = result["giri"].get("2_tags", {})
+    details = g2.get("details", [])
+    if details or g2.get("fixes"):
+        migrations = {}
+        for d in details:
+            for old, new in d.get("changes", {}).items():
+                k = f"{old} -> {new}"
+                migrations[k] = migrations.get(k, 0) + 1
+        print(f"-- Giro 2: TAGS ({g2.get('fixes', len(details))} fixes) --")
+        print("  Migrations:")
+        for m, c in sorted(migrations.items(), key=lambda x: -x[1]):
+            print(f"    {m:40s} {c:4d}")
+        print()
+
+    # --- Giro 3: Links ---
+    g3 = result["giri"].get("3_links", {})
+    details = g3.get("details", [])
+    if details or g3.get("fixes"):
+        link_targets = {}
+        dirs3 = {}
+        relinks = 0
+        removals = 0
+        for d in details:
+            f = d.get("file", "")
+            dr = f.split("/")[0] if "/" in f else "(root)"
+            dirs3[dr] = dirs3.get(dr, 0) + 1
+            for ch in d.get("changes", []):
+                old = ch.get("old", "")
+                fname = old.split("/")[-1] if "/" in old else old
+                link_targets[fname] = link_targets.get(fname, 0) + 1
+                if ch.get("new"):
+                    relinks += 1
+                else:
+                    removals += 1
+        print(f"-- Giro 3: LINKS ({g3.get('fixes', len(details))} fixes) --")
+        print("  Fix type:")
+        if relinks:
+            print(f"    {'relink (path corrected)':40s} {relinks:4d}")
+        if removals:
+            print(f"    {'remove (target missing)':40s} {removals:4d}")
+        print("  Broken targets (top 10):")
+        for t, c in sorted(link_targets.items(), key=lambda x: -x[1])[:10]:
+            print(f"    {t:40s} {c:4d}")
+        print("  Files fixed by directory (top 10):")
+        for d, c in sorted(dirs3.items(), key=lambda x: -x[1])[:10]:
+            print(f"    {d + '/':30s} {c:4d}")
+        print()
+
+    # --- Giro 4: Obsidian ---
+    g4 = result["giri"].get("4_obsidian", {})
+    details = g4.get("details", [])
+    if details or g4.get("fixes"):
+        print(f"-- Giro 4: OBSIDIAN ({g4.get('fixes', len(details))} fixes) --")
+        for d in details:
+            print(f"  {d.get('file', '?')}: {d.get('action', '?')}")
+        print()
+
+    # --- Giro 5: Wikilinks ---
+    g5 = result["giri"].get("5_wikilinks", {})
+    details = g5.get("details", [])
+    if details or g5.get("fixes"):
+        strategies = {}
+        targets = {}
+        dirs5 = {}
+        for d in details:
+            f = d.get("file", "")
+            dr = f.split("/")[0] if "/" in f else "(root)"
+            dirs5[dr] = dirs5.get(dr, 0) + 1
+            for fix in d.get("details", []):
+                s = fix.get("strategy", "unknown")
+                strategies[s] = strategies.get(s, 0) + 1
+                t = fix.get("target", "")
+                targets[t] = targets.get(t, 0) + 1
+        print(f"-- Giro 5: WIKILINKS ({g5.get('fixes', len(details))} files, "
+              f"{sum(strategies.values())} fixes) --")
+        print("  By strategy:")
+        for s, c in sorted(strategies.items(), key=lambda x: -x[1]):
+            print(f"    {s:30s} {c:4d}")
+        print("  Top broken targets:")
+        for t, c in sorted(targets.items(), key=lambda x: -x[1])[:10]:
+            label = t[:38] if len(t) > 38 else t
+            print(f"    {label:40s} {c:4d}")
+        print("  Files fixed by directory (top 10):")
+        for d, c in sorted(dirs5.items(), key=lambda x: -x[1])[:10]:
+            print(f"    {d + '/':30s} {c:4d}")
+        print()
+
+    # --- Summary ---
+    all_files = set()
+    for gname in ["1_frontmatter", "2_tags", "3_links", "5_wikilinks"]:
+        for d in result["giri"].get(gname, {}).get("details", []):
+            all_files.add(d.get("file", ""))
+    deleted = len(result["giri"].get("4_obsidian", {}).get("details", []))
+    print("=" * 56)
+    print("SUMMARY")
+    print(f"  Files touched:         ~{len(all_files)}")
+    if deleted:
+        print(f"  Files deleted:         {deleted}")
+    print(f"  Total operations:      {result['total_fixes']}")
+    # Find heaviest giro
+    heaviest = ""
+    heaviest_n = 0
+    for gname in ["1_frontmatter", "2_tags", "3_links", "4_obsidian", "5_wikilinks"]:
+        n = result["giri"].get(gname, {}).get("fixes", 0)
+        if n > heaviest_n:
+            heaviest_n = n
+            heaviest = gname
+    if heaviest:
+        print(f"  Heaviest giro:         {heaviest} ({heaviest_n})")
+    print()
+    if result["mode"] == "DRY RUN":
+        print("Run with --apply to execute changes.")
+
+
 def cmd_fix(args):
     from .fixer import fix_all
     vault = _ensure_vault(args.vault)
@@ -158,31 +311,7 @@ def cmd_fix(args):
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     else:
-        print(f"marginalia {__version__} -- Fix Pipeline ({result['mode']})\n{'=' * 50}")
-        print(f"Vault: {vault}\n")
-        for giro_name, giro_data in result["giri"].items():
-            if isinstance(giro_data, dict) and "fixes" in giro_data:
-                print(f"Giro {giro_name}: {giro_data['fixes']} fixes")
-                for detail in giro_data.get("details", [])[:10]:
-                    action = detail.get("action", "")
-                    f = detail.get("file", "")
-                    if "changes" in detail and isinstance(detail["changes"], dict):
-                        ch = ", ".join(f"{k}->{v}" for k, v in list(detail["changes"].items())[:3])
-                        print(f"  {f}: {action} ({ch})")
-                    elif "count" in detail:
-                        print(f"  {f}: {action} ({detail['count']} links)")
-                    else:
-                        print(f"  {f}: {action}")
-                extra = len(giro_data.get("details", [])) - 10
-                if extra > 0:
-                    print(f"  ... and {extra} more")
-            elif isinstance(giro_data, dict):
-                for k, v in giro_data.items():
-                    print(f"  {k}: {v}")
-            print()
-        print(f"Total fixes: {result['total_fixes']}")
-        if result["mode"] == "DRY RUN":
-            print("\nRun with --apply to execute changes.")
+        _print_fix_report(result, vault)
     sys.exit(0)
 
 
@@ -473,6 +602,7 @@ def cmd_eval(args):
 
 def cmd_closeout(args):
     from .closeout import run_closeout
+    from .validators import validate_closeout
     base_dir = Path(args.base).resolve() if args.base else Path.cwd()
     sessions_history = args.sessions_history or None
 
@@ -485,6 +615,10 @@ def cmd_closeout(args):
         model=args.model,
         sessions_history_path=sessions_history,
     )
+
+    # Validate output against acceptance criteria
+    validation = validate_closeout(result)
+    result["validation"] = validation
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
@@ -511,7 +645,44 @@ def cmd_closeout(args):
 
             if result["mode"] == "DRY RUN":
                 print("\nRun with --write to create files.")
+
+        # Print validation report
+        v = result.get("validation", {})
+        if v:
+            status = "PASS" if v["valid"] else "FAIL"
+            print(f"\n--- Validation ({status}, confidence={v['confidence']:.0%}) ---")
+            if v.get("failed"):
+                for f in v["failed"]:
+                    print(f"  FAIL: {f['id']} — {f['description']}")
+            if v["valid"]:
+                print(f"  All {v['total_checks']} acceptance criteria passed.")
     sys.exit(0)
+
+
+def cmd_validate(args):
+    from .validators import validate_closeout, validate_scan
+    if args.input == "-":
+        data = json.load(sys.stdin)
+    else:
+        with open(args.input, encoding="utf-8") as f:
+            data = json.load(f)
+
+    validator = validate_closeout if args.type == "closeout" else validate_scan
+    report = validator(data)
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
+    else:
+        status = "PASS" if report["valid"] else "FAIL"
+        print(f"marginalia validate ({args.type}) — {status}")
+        print(f"Confidence: {report['confidence']:.0%} ({len(report['passed'])}/{report['total_checks']} checks)\n")
+        for p in report["passed"]:
+            print(f"  PASS  {p['id']}: {p['description']}")
+        for f in report["failed"]:
+            print(f"  FAIL  {f['id']}: {f['description']}")
+        if not report["valid"]:
+            print(f"\nRequires human review: {len(report['failed'])} criteria failed.")
+    sys.exit(0 if report["valid"] else 1)
 
 
 def cmd_ai(args):
@@ -648,6 +819,11 @@ def main():
     p.add_argument("--sessions-history", help="Path to sessions-history.md")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("validate", help="Validate a JSON output against acceptance criteria (Evaluator pattern)")
+    p.add_argument("input", help="Path to JSON file or - for stdin")
+    p.add_argument("--type", choices=["closeout", "scan"], default="closeout", help="Validation type (default: closeout)")
+    p.add_argument("--json", action="store_true")
+
     p = sub.add_parser("ai", help="AI-powered analysis (OpenRouter/OpenAI/Ollama)")
     p.add_argument("action", choices=["review", "tag", "connect", "frontmatter"])
     p.add_argument("vault", nargs="?", default=".")
@@ -663,7 +839,8 @@ def main():
 
     cmds = {"scan": cmd_scan, "check": cmd_check, "fix": cmd_fix, "fix-tags": cmd_fix_tags,
             "discover": cmd_discover, "index": cmd_index, "css": cmd_css, "graph": cmd_graph,
-            "link": cmd_link, "eval": cmd_eval, "ai": cmd_ai, "closeout": cmd_closeout}
+            "link": cmd_link, "eval": cmd_eval, "ai": cmd_ai, "closeout": cmd_closeout,
+            "validate": cmd_validate}
     cmds[args.command](args)
 
 
