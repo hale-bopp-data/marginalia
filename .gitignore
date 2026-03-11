@@ -6,5 +6,8 @@ build/
 .eggs/
 .venv/
 
+# Obsidian plugin — build deps (artifact main.js is committed intentionally)
+obsidian-plugin/node_modules/
+
 # Repo semaphore (agent lock)
 .semaphore.json

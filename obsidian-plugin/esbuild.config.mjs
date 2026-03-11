@@ -7,6 +7,7 @@ const ctx = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
   external: ["obsidian", "electron", "@codemirror/*", "@lezer/*"],
+  platform: "node",
   format: "cjs",
   target: "es2018",
   logLevel: "info",
