@@ -46,7 +46,7 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Ruff check
-        run: ruff check marginalia/ --select=E,F,W --ignore=E501
+        run: ruff check src/marginalia/ --select=E,F,W --ignore=E501
 
   obsidian-plugin:
     name: Build Obsidian plugin
