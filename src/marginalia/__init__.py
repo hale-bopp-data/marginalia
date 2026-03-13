@@ -1,3 +1,9 @@
 """marginalia — Markdown vault quality scanner for Obsidian, academics, and documentation teams."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("marginalia")
+except PackageNotFoundError:
+    # package not installed (e.g. running from source without pip install -e .)
+    __version__ = "0.0.0-dev"

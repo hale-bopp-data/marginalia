@@ -1,10 +1,15 @@
 __pycache__/
 *.pyc
+# Catch-all for any egg-info location (including stale root-level ones)
 *.egg-info/
+marginalia.egg-info/
 dist/
 build/
 .eggs/
 .venv/
+
+# Obsidian plugin — build deps (artifact main.js is committed intentionally)
+obsidian-plugin/node_modules/
 
 # Repo semaphore (agent lock)
 .semaphore.json
