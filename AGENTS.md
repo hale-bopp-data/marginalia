@@ -9,20 +9,22 @@ tags: []
 > Guardrails e regole: vedi `.cursorrules` nello stesso repo.
 
 ## Identità
-- **Cosa**: Plugin TypeScript per Obsidian — session management, closeout automation
-- **Linguaggio**: TypeScript, Python (CLI)
-- **Branch**: `feat→main` (NO develop) | PR target: `main`
-
+| Campo | Valore |
+|---|---|
+| Cosa | Plugin TypeScript per Obsidian — session management, closeout automation |
+| Linguaggio | TypeScript, Python (CLI) |
+| Branch | `feat→main` (NO develop) — PR target: `main` |
 
 ## Comandi rapidi
 ```bash
 ewctl commit
+# Build plugin
 cd obsidian-plugin && npm run build
 
-
+# Run tests
 pytest tests/
 
-
+# Install CLI
 pip install -e .
 ```
 
@@ -36,9 +38,12 @@ docs/                # Documentation
 pyproject.toml       # Python package metadata
 ```
 
-- Plugin Obsidian: build con esbuild
-- CLI Python: `marginalia` command per session management
-- Testare plugin in Obsidian dev vault prima di rilasciare
+## Regole specifiche marginalia
+| Regola | Dettaglio |
+|---|---|
+| Plugin | Obsidian: build con esbuild |
+| CLI | Python: `marginalia` command per session management |
+| Test | plugin in Obsidian dev vault prima di rilasciare |
 
 ## ADO Workflow
 ```bash
@@ -56,7 +61,6 @@ cd /c/old/easyway/marginalia && git push -u origin feat/nome-descrittivo
 bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create hale-bopp-marginalia feat/nome-descrittivo main "AB#NNN titolo" NNN
 ```
 
-
 ## Connessioni
 - **PAT/secrets**: SOLO su server `/opt/easyway/.env.secrets` — MAI in locale
 - **Guida**: `easyway-wiki/guides/connection-registry.md`
@@ -64,4 +68,4 @@ bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create hale-bopp-marginalia fea
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-14T12:31:02.317Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-14T16:00:00.000Z
