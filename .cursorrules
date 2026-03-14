@@ -5,138 +5,30 @@ tags: []
 
 # ☄️ CAVALCARE LE COMETE — Lo spirito EasyWay / HALE-BOPP
 # Puntiamo sempre in alto e non dobbiamo essere paurosi (G17).
-# Per risolvere un problema bisogna riconoscere che ne sia uno.
 # Il grande folle possiede quella perfetta miscela di autoinganno e di ego
-# dove altri hanno fallito (G18). Seconda stella a destra e poi dritto
-# fino al mattino — chi ci ha già rinunciato forse è ancora più pazzo di noi.
-# La sicurezza non crea eroi — se non c'è, allora servono gli eroi (G19).
-# Noi cerchiamo un mondo di gente normale preparata al cigno nero.
-# GEDI: 19 principi in agents/agent_gedi/manifest.json
+# dove altri hanno fallito (G18). La sicurezza non crea eroi — se non c'è,
+# allora servono gli eroi (G19). GEDI: 19 principi in agents/agent_gedi/manifest.json
 
-# 🚦 SEMAFORO REPO — Controlla PRIMA di lavorare
-# File: `.semaphore.json` nella root. Se status=yellow/red e non sei tu → STOP, chiedi.
-# Inizio sessione: metti giallo. Fine sessione: rimetti verde.
-# Guida: wiki/guides/repo-semaphore.md — "e torna a coppe" se non lo leggi.
-
-# 🛑 REGOLA GEDI FIX — OGNI FIX DEVE ESSERE STRUTTURALE E ANTIFRAGILE (S118)
-# Prima di applicare QUALSIASI fix (bug, hotfix, config, infra):
-# 1. GEDI OODA obbligatorio — Observe → Orient → Decide → Act
-# 2. Il fix DEVE essere STRUTTURALE: risolvere la causa root, non il sintomo
-# 3. Il fix DEVE essere ANTIFRAGILE: creare un guardrail perché non ricapiti MAI
-# 4. Presenta all'utente: causa root, analisi GEDI, fix strutturale proposto
-# 5. Approvazione umana: opzionale, a discrezione. Se chiaro → procedi. Se dubbio → chiedi.
-# Test: dopo il fix, il sistema è più robusto di prima? Se no, il fix è incompleto.
-# GEDI Case #70 — Una patch non è un fix.
-
-# 🎴 GEDI PROFILE FRAMEWORK — Le carte Magic (S129)
-# Tre profili di protezione, auto-detect dal branch corrente.
-# Lookup order: $GEDI_PROFILE env → hooks/{profile}/gedi.profile.json → auto-detect branch → fallback "ams"
-#
-# 🟢 ESPLORATORE (dev) — feat/*, feature/*, chore/*, experiment/*, spike/*
-#   Sperimentazione libera, guardrail leggeri.
-#   fix_keyword: advisory (no notify) | error_repeat: block @5 | no_options: disabled
-#
-# 🟡 GUARDIANO (ams) — develop, staging, release/*, hotfix/*
-#   Sistemi vivi, trigger bilanciati. DEFAULT se nessun match.
-#   fix_keyword: advisory + notify n8n | error_repeat: block @3 | no_options: advisory
-#
-# 🔴 SENTINELLA (prod) — main, master, production
-#   Massima protezione, tolleranza minima.
-#   fix_keyword: BLOCK + notify n8n | error_repeat: block @2 | no_options: advisory
-#
-# Profili in: hooks/{dev,ams,prod}/gedi.profile.json (project-level override)
-# Package defaults: gedi-check/src/gedi_check/profiles/{dev,ams,prod}.json
-# Tool: `gedi-check --show-profile` per verificare quale profilo è attivo
-# n8n audit: webhook POST /webhook/orchestrator.gedi.validate (notifiche trigger)
+# 🚦 SEMAFORO — `.semaphore.json` nella root. Se yellow/red e non sei tu → STOP.
+# Guida: wiki/guides/repo-semaphore.md
 
 # hale-bopp-marginalia — Obsidian Session Management Plugin
-
-> Plugin Obsidian per gestione sessioni AI: apertura, chiusura, context tracking.
-
-## Source of Truth
+# Branch: `feat→main` (NO develop) | Merge: no fast-forward
 - Remote primario: Azure DevOps (`dev.azure.com/EasyWayData`). PR, branch, CI/CD: TUTTO su ADO.
 - GitHub (`hale-bopp-data/hale-bopp-marginalia`): mirror pubblico per community.
 
-## Identita
-- **Cosa**: Plugin TypeScript per Obsidian — session management, closeout automation
-- **Linguaggio**: TypeScript, Python (CLI)
-- **Branch strategy**: `feat→main` (NO develop)
-- **Merge strategy**: Merge (no fast-forward)
+## GEDI Fix — Ogni fix deve essere strutturale e antifragile (S118)
+# 1. GEDI OODA obbligatorio — Observe → Orient → Decide → Act
+# 2. STRUTTURALE: causa root, non sintomo. ANTIFRAGILE: guardrail permanente.
+# 3. Presenta all'utente: causa root + fix proposto. Test: sistema più robusto?
+# GEDI Case #70 — Una patch non è un fix.
 
-
-## Comandi rapidi
-```bash
-# Commit (con Iron Dome pre-commit scan)
-ewctl commit
-
-cd obsidian-plugin && npm run build
-
-
-pytest tests/
-
-
-pip install -e .
-```
-
-## Struttura directory
-```
-src/
-  marginalia/        # Python CLI package
-obsidian-plugin/     # Obsidian plugin (TypeScript)
-tests/               # Test suite
-docs/                # Documentation
-pyproject.toml       # Python package metadata
-```
-
-- Plugin Obsidian: build con esbuild
-- CLI Python: `marginalia` command per session management
-- Testare plugin in Obsidian dev vault prima di rilasciare
-
-## Connessioni & PAT
-> **Guida completa**: `easyway-wiki/guides/connection-registry.md` — PAT status, scadenze, rinnovo, routing
-> **Gateway architecture (S88)**: tutte le API call passano via SSH gateway sul server OCI
-> **PAT**: vivono SOLO su server `/opt/easyway/.env.secrets` — NON in locale
-> **Config**: `connections.yaml` sezione `gateway: mode: server`
-> **`.env.local` locale**: solo OPENROUTER_API_KEY e QDRANT (niente PAT)
-
-### Comandi ADO — Ordine di preferenza OBBLIGATORIO (S107)
-**MAI usare `az login` o `az boards`**. MAI cercare MCP per ADO. Il canale e il proxy SSH.
-```bash
-# Creare Work Item
-bash /c/old/easyway/ado/scripts/ado-remote.sh wi-create "titolo" "PBI" "tag1;tag2"
-
-# Creare PR (UNICO metodo — MAI curl inline con JSON)
-bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create <repo> <src-branch> <tgt-branch> "titolo" [wi_id]
-
-# Completare PR (dopo approvazione umana)
-bash /c/old/easyway/ado/scripts/ado-remote.sh pr-complete <pr_id>
-
-# Linkare WI a PR
-bash /c/old/easyway/ado/scripts/ado-remote.sh wi-link-pr <wi_id> <pr_id> [repo]
-
-# Health check PAT
-bash /c/old/easyway/ado/scripts/ado-remote.sh pat-health-check
-
-# API call generica
-bash /c/old/easyway/ado/scripts/ado-remote.sh ado-curl <action> <method> <url>
-```
-**Repo names ADO**: `easyway-portal`, `easyway-wiki`, `easyway-agents`, `easyway-infra`, `easyway-ado`, `easyway-n8n`
-
-### PR creation — il MODO UNICO
-```bash
-# 1. Push del branch
-git push -u origin feat/nome-descrittivo
-
-# 2. Creare PR (un solo comando — gestisce auth, SSH gateway, tutto)
-bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create hale-bopp-marginalia feat/nome-descrittivo main "AB#NNN titolo" NNN
-
-# 3. (Opzionale) Auto-link WI se non passato in step 2
-bash /c/old/easyway/ado/scripts/ado-remote.sh pr-autolink-wi <pr_id> hale-bopp-marginalia
-```
-**MAI usare curl inline con JSON interpolato per creare PR.** Il quoting si rompe SEMPRE.
-**MAI usare `az repos pr create`** — richiede login interattivo non disponibile.
-
-
+## GEDI Profiles — Le carte Magic (S129)
+# Auto-detect dal branch: $GEDI_PROFILE env → hooks/{profile}/gedi.profile.json → fallback "ams"
+# 🟢 ESPLORATORE (dev) — feat/*, chore/*, spike/* — guardrail leggeri
+# 🟡 GUARDIANO (ams) — develop, staging, release/* — bilanciato (DEFAULT)
+# 🔴 SENTINELLA (prod) — main, master — massima protezione
+# Tool: `gedi-check --show-profile` | Profili: gedi-check/src/gedi_check/profiles/
 
 ## Regole assolute — MAI senza autorizzazione
 | # | Regola |
@@ -147,30 +39,17 @@ bash /c/old/easyway/ado/scripts/ado-remote.sh pr-autolink-wi <pr_id> hale-bopp-m
 | G4 | MAI usare `-ExecutionPolicy Bypass` |
 | G5 | MAI pushare direttamente a main |
 | G6 | MAI creare PR senza Work Item (Regola del Palumbo) |
-| G7 | MAI creare PR se c'e una pendente sugli stessi file |
+| G7 | MAI creare PR se c'è una pendente sugli stessi file |
 | G8 | MAI `git pull` in deploy — sempre `fetch + reset --hard` |
 | G9 | MAI `--no-verify` per skippare hooks |
 | G10 | MAI `--force` — usare `--force-with-lease` |
 | G11 | Se il repo ha `develop`, PR verso `main` bloccate — passare da `develop` |
-| G12 | Branch Guard: pipeline BranchPolicyGuard blocca PR feat→main se develop esiste |
+| G12 | Branch Guard: pipeline blocca PR feat→main se develop esiste |
 | G13 | PR Auto-Link WI: dopo PR create, SEMPRE verificare WI linkato |
-| G14 | No Script Personali: tool canonico = `ado-remote.sh`. MAI PAT da file locali |
-| G15 | SSH Anti-Quoting: usare SEMPRE heredoc o script server-side. MAI quote annidate |
-| G16 | Server Runbook: OGNI modifica server → aggiornare `Runbooks/server-full-setup.md` |
-
-## Wiki Documentation Rule — Cosa/Come/Perché/Q&A
-Ogni capability creata o modificata (tool, script, workflow, endpoint, config) **DEVE** essere documentata in `easyway-wiki/guides/` con:
-1. **Cosa** — tabella componenti con path
-2. **Come** — flusso esecuzione, comandi, ricette copia-incolla
-3. **Perché** — motivazione architetturale (con GEDI OODA se applicabile)
-4. **Q&A** — domande frequenti (aggiungere man mano)
-Senza guida wiki, il lavoro è **incompleto**. Ref: `wiki/standards/agent-architecture-standard.md` §10
-
-## Regole platform-wide
-> **Guida completa**: `easyway-wiki/guides/polyrepo-git-workflow.md`
-> **GEDI** (dubbi architetturali): `easyway-agents/agents/agent_gedi/manifest.json` (19 principi)
-> **Storia e contesto**: `easyway-wiki/agents/platform-operational-memory.md`
-> **Governance Git**: vedi Sezione 6 della guida polyrepo (regole G1-G16)
+| G14 | Tool canonico = `ado-remote.sh`. MAI PAT da file locali |
+| G15 | SSH: SEMPRE heredoc o script server-side. MAI quote annidate |
+| G16 | OGNI modifica server → aggiornare `Runbooks/server-full-setup.md` |
+| G17 | Git Cross-Repo: MAI git push/commit senza `cd <repo> &&` o `git -C` |
 
 ## Security
 - Hardcoded secrets = **immediato revert**
@@ -178,8 +57,12 @@ Senza guida wiki, il lavoro è **incompleto**. Ref: `wiki/standards/agent-archit
 - Docker: pin versions, least privilege
 - Secrets/PAT SOLO su server `/opt/easyway/.env.secrets` (S88 gateway)
 
+## Documentazione
+- Ogni capability → guida in `easyway-wiki/guides/` con Cosa/Come/Perché/Q&A
+- **GEDI**: `easyway-agents/agents/agent_gedi/manifest.json` (19 principi)
+- **Governance Git**: `easyway-wiki/guides/polyrepo-git-workflow.md` (regole G1-G17)
+- **Operativo**: vedi `AGENTS.md` nello stesso repo per comandi, struttura, workflow ADO
+
 ---
-> Generato automaticamente dal Context Sync Engine (n8n workflow `context-sync`).
-> Master template: `easyway-wiki/templates/cursorrules-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml`
-> Ultima sincronizzazione: 2026-03-14T03:01:59.207Z
+> Context Sync Engine | Master: `easyway-wiki/templates/cursorrules-master.md`
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-14T12:31:02.317Z
