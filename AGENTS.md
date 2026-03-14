@@ -15,15 +15,14 @@ tags: []
 | Linguaggio | TypeScript, Python (CLI) |
 | Branch | `feat→main` (NO develop) — PR target: `main` |
 
+
 ## Comandi rapidi
 ```bash
 ewctl commit
 # Build plugin
 cd obsidian-plugin && npm run build
-
 # Run tests
 pytest tests/
-
 # Install CLI
 pip install -e .
 ```
@@ -61,6 +60,7 @@ cd /c/old/easyway/marginalia && git push -u origin feat/nome-descrittivo
 bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create hale-bopp-marginalia feat/nome-descrittivo main "AB#NNN titolo" NNN
 ```
 
+
 ## Connessioni
 - **PAT/secrets**: SOLO su server `/opt/easyway/.env.secrets` — MAI in locale
 - **Guida**: `easyway-wiki/guides/connection-registry.md`
@@ -68,4 +68,4 @@ bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create hale-bopp-marginalia fea
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-14T16:00:00.000Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-14T18:00:03Z
