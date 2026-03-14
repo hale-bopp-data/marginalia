@@ -3,8 +3,11 @@
 
 ## Progetto
 marginalia è un CLI Python per la qualità dei vault Markdown.
-Repo: https://github.com/hale-bopp-data/marginalia
+Repo ADO (primary): https://dev.azure.com/EasyWayData/EasyWay-DataPortal/_git/hale-bopp-marginalia
+Repo GitHub (mirror): https://github.com/hale-bopp-data/marginalia
 Org: hale-bopp-data (open source MIT)
+Circle: 2 — ADO primary, GitHub read-only mirror (S143)
+Path locale: C:\old\easyway\marginalia\
 
 ## Setup & comandi rapidi
 ```bash
@@ -87,6 +90,11 @@ score = cosine + (0.08 × tag_overlap) + (0.04 × same_dir) + (0.02 × same_top_
 - Tag semver per release PyPI
 
 ## Connessioni & PAT
-Repo open source — nessun PAT interno EasyWay.
-GitHub token standard per CI (GITHUB_TOKEN automatico).
+Circle 2: ADO primary (EasyWayData PAT via ado-remote.sh), GitHub mirror (GITHUB_TOKEN).
 Per release PyPI: secret PYPI_TOKEN nel repository GitHub.
+Guida connessioni: `easyway-wiki/guides/connection-registry.md`
+
+## Guard hooks
+Pre-commit (Iron Dome): secrets scan, conflict markers, docker run guard.
+Guard Telemetry (S143): interventi registrati in `~/.easyway/guard-telemetry.jsonl`.
+Install: `bash /c/old/easyway/infra/scripts/hooks/install-hooks.sh`
