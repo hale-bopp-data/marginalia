@@ -1,248 +1,66 @@
 # AGENTS.md — marginalia
 
-Istruzioni operative per agenti AI (Codex, Claude Code, Copilot Workspace, ecc.)
-che lavorano in questo repository.
+> Tool Python CLI per la qualità dei vault Markdown (Obsidian, PhD, team docs).
+> Guardrails e regole: vedi `.cursorrules` nello stesso repo.
 
----
+## Identità
+| Campo | Valore |
+|---|---|
+| Cosa | Python CLI — scan, fix, link, eval per vault Markdown |
+| Linguaggio | Python >= 3.9 (zero deps core), TypeScript (Obsidian plugin) |
+| Repo | `https://github.com/hale-bopp-data/marginalia` |
+| Licenza | MIT |
+| Versione | → vedi `marginalia/__init__.py` → `__version__` |
+| Package | `pip install -e .` — zero dipendenze esterne obbligatorie |
 
-## Identità del progetto
-
-**marginalia** è un tool Python CLI per la qualità dei vault Markdown (Obsidian, PhD, team docs).
-- Repo: `https://github.com/hale-bopp-data/marginalia`
-- Licenza: MIT
-- Versione corrente: `marginalia/__init__.py` → `__version__`
-- Package: `pip install -e .` — zero dipendenze esterne obbligatorie
-
----
-
-## Struttura repository
-
-```
-marginalia/              ← package Python
-  __init__.py            ← versione
-  cli.py                 ← entrypoint CLI (11 comandi)
-  scanner.py             ← find_md_files, scan_file, build_graph
-  linker.py              ← TF-IDF cosine similarity, build_suggestions, run_link
-  config.py              ← loader marginalia.yaml (zero deps)
-  fixer.py               ← 4 Giri fix pipeline
-  tags.py                ← taxonomy, tag migration
-  obsidian.py            ← Obsidian health checks
-  discovery.py           ← hidden connection discovery
-  index_builder.py       ← MOC, tag index, orphan index
-  brain.py               ← AI analysis (OpenRouter/OpenAI/Ollama)
-  eval.py                ← before/after RAG quality measurement
-obsidian-plugin/         ← TypeScript plugin Obsidian
-  src/main.ts            ← plugin logic
-  manifest.json
-  package.json
-tests/
-  test_linker.py         ← pytest test suite
-  test_eval.py           ← eval snapshot/compare tests
-.github/workflows/
-  ci.yml                 ← CI: test Python 3.9-3.12, lint, build plugin
-pyproject.toml
-```
-
----
-
-## Comandi operativi
-
-### Setup
+## Comandi rapidi
 ```bash
 pip install -e .
-```
-
-### Test
-```bash
 python -m pytest tests/ -v --tb=short
-```
-
-### Smoke test rapido
-```bash
 marginalia scan . --json
 marginalia link . --json
-```
-
-### Build plugin Obsidian
-```bash
 cd obsidian-plugin && npm ci && npm run build
-```
-
-### Lint
-```bash
 ruff check marginalia/ --select=E,F,W --ignore=E501
 ```
 
----
-
-## Convenzioni di codice
-
-- **Python >= 3.9** — type hints ok, `|` union syntax (3.10+) da evitare nei moduli core
-- **Zero dipendenze esterne** per i moduli core (scanner, linker, config, fixer, tags, obsidian)
-  - `brain.py` usa urllib stdlib (non requests)
-  - Il plugin TypeScript usa solo `obsidian` (peer dep) e `esbuild`
-- **Nessun PyYAML** — config.py usa il parser minimale interno `_parse_yaml()`
-- **UTF-8 ovunque** — `encoding="utf-8", errors="replace"` su tutti i `read_text()`
-- **Dry-run di default** — ogni operazione distruttiva richiede `--apply` + `--no-what-if`
-- **Backup sempre** prima di modificare file utente (vedi `run_link` apply phase)
-
----
-
-## Scoring formula (linker.py)
-
+## Struttura
+```text
+marginalia/              # package Python (11 comandi CLI)
+  cli.py, scanner.py, linker.py, config.py, fixer.py
+  tags.py, obsidian.py, discovery.py, index_builder.py
+  brain.py, eval.py
+obsidian-plugin/         # TypeScript plugin Obsidian
+tests/                   # pytest suite
+.github/workflows/ci.yml
 ```
-score = cosine_similarity
-      + (0.08 × tag_overlap)
-      + (0.04 × same_dir)
-      + (0.02 × same_top_dir)
-```
-
-Non modificare i coefficienti senza aggiornare i test in `test_linker.py`.
-
----
-
-## CLI commands
-
-| Comando | Descrizione |
-|---|---|
-| `scan [VAULT...]` | Scan qualità frontmatter/link/sezioni vuote |
-| `check [vault]` | Obsidian health checks |
-| `fix [vault]` | 4 Giri fix pipeline (dry-run default) |
-| `fix-tags [vault]` | Migrazione tag flat→namespaced |
-| `discover [vault]` | Connessioni nascoste per tag/topologia |
-| `index [vault]` | Genera MOC, tag index, orphan index |
-| `css [vault]` | CSS snippet colori tag per Obsidian |
-| `graph [vault]` | Link graph JSON |
-| `link [VAULT...]` | TF-IDF link suggestions + apply |
-| `ai <action> [vault]` | AI review/tag/connect/frontmatter |
-| `eval snapshot VAULT QUERIES OUT` | Snapshot qualità RAG (TF-IDF) |
-| `eval compare BEFORE AFTER` | Diff due snapshot → verdict IMPROVED/DEGRADED/NEUTRAL |
-
----
-
-## Config file (marginalia.yaml)
-
-Auto-scoperto in cwd o nella vault dir. Esempio:
-
-```yaml
-vaults:
-  - docs/
-  - ../wiki/
-exclude:
-  - node_modules/
-  - .git/
-  - archive/
-min_score: 0.35
-max_links: 5
-top_k: 7
-heading: "## See also"
-```
-
----
-
-## Regola Benchmark — Misurare SEMPRE prima e dopo (S122)
-
-**Trigger**: ogni volta che si lancia `marginalia fix`, `fix-tags`, `link --apply`, o qualsiasi modifica batch a un vault.
-
-**Azione obbligatoria**:
-1. **PRIMA**: raccogliere metriche baseline
-   - `marginalia scan <vault>` → issue count per tipo
-   - Qdrant chunk count (se il vault è indicizzato)
-   - Frontmatter coverage (% file con frontmatter)
-2. **DOPO**: stesse metriche post-fix
-3. **DELTA**: presentare tabella prima/dopo con variazione %
-
-| Metrica | Prima | Dopo | Delta |
-|---|---|---|---|
-| Issue totali | X | Y | -Z% |
-| Chunk Qdrant | X | Y | +/-Z |
-| Frontmatter % | X% | Y% | +Z% |
-
-**Principio**: senza numeri non c'è miglioramento, c'è solo opinione.
-
----
 
 ## Regole per agenti
-
-1. **MAI modificare i coefficienti di scoring** senza test che lo giustifichino.
-2. **MAI aggiungere dipendenze esterne** ai moduli core — usare solo stdlib.
-3. **MAI scrivere file utente** senza backup preventivo (pattern: `.bak` in run-dir).
-4. **Aggiornare `__version__`** in `__init__.py` ad ogni release (semver).
-5. **Test prima di PR** — `pytest tests/` deve essere verde.
-6. **`--json` su tutti i comandi** — ogni subcommand deve supportare output JSON machine-readable.
-7. **Multi-vault**: `scan` e `link` accettano `nargs="*"` — i path si passano come argomenti posizionali multipli.
-8. **eval**: usa il motore TF-IDF interno (zero deps). Il file queries è YAML o JSON. Il formato snapshot è v1 JSON con `version`, `createdAt`, `vaultPaths`, `docs`, `summary`, `queries`.
-
----
-
-## eval — Before/After RAG Quality
-
-### Queries file (YAML)
-
-```yaml
-queries:
-  - text: "deploy to production"
-    expected:
-      - deploy.md
-  - text: "secrets PAT rotation"
-    expected:
-      - secrets.md
-  - text: "semantic search"   # no expected — solo coverage
-```
-
-### Workflow tipico
-
-```bash
-# Prima del refactoring vault
-marginalia eval snapshot ./vault queries.yaml before.json --top-k 5
-
-# Dopo il refactoring
-marginalia eval snapshot ./vault queries.yaml after.json --top-k 5
-
-# Confronto
-marginalia eval compare before.json after.json
-```
-
-### Output compare (JSON)
-
-```json
-{
-  "aggregate": {
-    "verdict": "IMPROVED",
-    "avg_top1_score_delta": 0.12,
-    "coverage_delta": 0.25
-  },
-  "queries": [
-    {
-      "text": "deploy to production",
-      "top1_score_delta": 0.15,
-      "new_results": ["guides/deploy-v2.md"],
-      "lost_results": []
-    }
-  ]
-}
-```
-
-### Metriche
-
-| Metrica | Significato |
+| # | Regola |
 |---|---|
-| `top1_score` | Score del primo risultato |
-| `coverage` | Frazione query con ≥1 risultato sopra min_score |
-| `precision_at_k` | Hit / K (solo se `expected` forniti) |
-| `recall_at_k` | Hit / len(expected) |
-| `verdict` | IMPROVED (Δ>0.05) / DEGRADED (Δ<-0.05) / NEUTRAL |
+| 1 | MAI modificare coefficienti scoring in `linker.py` senza test |
+| 2 | MAI aggiungere dipendenze esterne ai moduli core — solo stdlib |
+| 3 | MAI scrivere file utente senza backup preventivo (`.bak`) |
+| 4 | Aggiornare `__version__` in `__init__.py` ad ogni release (semver) |
+| 5 | `pytest tests/` deve essere verde prima di PR |
+| 6 | Ogni subcommand deve supportare `--json` output |
+| 7 | `scan` e `link` accettano `nargs="*"` — path multipli |
+| 8 | Dry-run di default — operazioni distruttive richiedono `--apply` |
+
+## Riferimenti
+| Cosa | Dove |
+|---|---|
+| Scoring formula | → vedi `marginalia/linker.py` (cosine + tag_overlap + dir bonus) |
+| CLI commands (11) | → vedi `marginalia/cli.py` o `marginalia --help` |
+| Config format | → vedi `marginalia.yaml` in qualsiasi vault |
+| Eval RAG workflow | → vedi `tests/test_eval.py` per formato snapshot/compare |
+| Regola Benchmark S122 | → vedi `easyway-wiki/guides/lessons-learned.md` |
+| Convenzioni codice | → vedi `.cursorrules` nello stesso repo |
+
+## Workflow & Connessioni
+| Cosa | Dove |
+|---|---|
+| PR flusso (GitHub-primary) | → vedi `easyway-wiki/guides/polyrepo-git-workflow.md` |
+| ADO ↔ GitHub | Ogni commit/PR deve referenziare `AB#NNN` — vedi `.cursorrules` |
 
 ---
-
-## ADO ↔ GitHub — Regola `AB#`
-
-Ogni commit e PR su GitHub (`hale-bopp-data/marginalia`) deve referenziare il Work Item ADO:
-
-```bash
-git commit -m "feat: add eval command AB#1234"
-# oppure nel body della PR: AB#1234
-```
-
-ADO mostra automaticamente il link alla PR/commit GitHub sul WI.
-**MAI creare PR senza Work Item ADO** — vale anche su GitHub (Regola del Palumbo).
+> Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
