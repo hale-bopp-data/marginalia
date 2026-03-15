@@ -33,24 +33,11 @@ tests/test_linker.py       ← pytest
 ```
 
 ## Principi di codice
-
-### Zero dipendenze esterne per i moduli core
-- scanner, linker, config, fixer, tags, obsidian, index_builder: SOLO stdlib
-- brain.py: urllib (non requests)
-- Nessun PyYAML — usare _parse_yaml() in config.py
-
-### Python >= 3.9
-- Type hints sì, `X | Y` union (3.10+) da evitare nei moduli importati da 3.9
-
-### Encoding
-- Sempre `encoding="utf-8", errors="replace"` su read_text/write_text
-
-### Dry-run by default
-- Ogni operazione che modifica file utente richiede --apply
-- apply phase: backup sempre prima di write (file .bak in run-dir)
-
-### JSON output
-- Ogni subcommand deve supportare --json per output machine-readable
+- **Zero deps core**: scanner/linker/config/fixer/tags = SOLO stdlib. brain.py = urllib. No PyYAML → `_parse_yaml()` in config.py
+- **Python >= 3.9**: type hints sì, `X | Y` union (3.10+) da evitare
+- **Encoding**: sempre `encoding="utf-8", errors="replace"`
+- **Dry-run by default**: `--apply` per modificare file, backup .bak prima di write
+- **JSON output**: ogni subcommand deve supportare `--json`
 
 ## Scoring formula (linker.py) — NON modificare i coefficienti senza test
 ```
@@ -84,17 +71,12 @@ score = cosine + (0.08 × tag_overlap) + (0.04 × same_dir) + (0.02 × same_top_
 - Dopo: stesse metriche → tabella delta
 - Senza numeri non c'e miglioramento, c'e solo opinione
 
-## Git workflow
-- Branch: feature → main (no develop)
-- Merge: no fast-forward
-- Tag semver per release PyPI
-
-## Connessioni & PAT
-Circle 2: ADO primary (EasyWayData PAT via ado-remote.sh), GitHub mirror (GITHUB_TOKEN).
-Per release PyPI: secret PYPI_TOKEN nel repository GitHub.
-Guida connessioni: `easyway-wiki/guides/connection-registry.md`
-
-## Guard hooks
-Pre-commit (Iron Dome): secrets scan, conflict markers, docker run guard.
-Guard Telemetry (S143): interventi registrati in `~/.easyway/guard-telemetry.jsonl`.
-Install: `bash /c/old/easyway/infra/scripts/hooks/install-hooks.sh`
+## Workflow & Connessioni
+| Cosa | Dove |
+|---|---|
+| Git workflow | `feat→main` (no develop), merge no-ff, semver tag per PyPI |
+| ADO operations (WI, PR) | → `easyway-wiki/guides/agents/agent-ado-operations.md` |
+| PR flusso standard | → `easyway-wiki/guides/polyrepo-git-workflow.md` |
+| PAT/secrets/gateway | → `easyway-wiki/guides/connection-registry.md` |
+| Guard hooks (Iron Dome) | → `bash /c/old/easyway/infra/scripts/hooks/install-hooks.sh` |
+| Tool unico ADO | `bash /c/old/easyway/ado/scripts/ado-remote.sh` — MAI curl inline |
