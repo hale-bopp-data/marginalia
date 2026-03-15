@@ -10,7 +10,7 @@ tags: []
 # allora servono gli eroi (G19). GEDI: 19 principi in agents/agent_gedi/manifest.json
 
 # 🚦 SEMAFORO — `.semaphore.json` nella root. Se yellow/red e non sei tu → STOP.
-# Guida: wiki/guides/repo-semaphore.md
+# Guida: wiki/guides/repo/repo-semaphore.md
 
 # hale-bopp-marginalia — Obsidian Session Management Plugin
 # Branch: `feat→main` (NO develop) | Merge: no fast-forward
@@ -65,4 +65,4 @@ tags: []
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/cursorrules-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-15T03:00:04Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-15T06:00:06Z
