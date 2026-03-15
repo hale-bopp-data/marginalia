@@ -1,4 +1,4 @@
-"""CLI entry point for marginalia — 13 commands: scan, check, fix, fix-tags, discover, index, css, graph, link, eval, ai, closeout, validate."""
+"""CLI entry point for marginalia — 14 commands: scan, check, fix, fix-tags, discover, index, css, graph, link, eval, ai, closeout, session-close, validate."""
 
 import argparse
 import json
@@ -659,6 +659,72 @@ def cmd_closeout(args):
     sys.exit(0)
 
 
+def cmd_session_close(args):
+    from .session_close import run_session_close
+    base_dir = Path(args.base).resolve() if args.base else Path.cwd()
+    sessions_history = args.sessions_history or None
+
+    result = run_session_close(
+        base_dir=base_dir,
+        session_number=args.session_number,
+        session_title=args.title,
+        write=args.write,
+        use_ai=args.ai,
+        model=args.model,
+        sessions_history_path=sessions_history,
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        mode = result["mode"]
+        print(f"marginalia {__version__} -- Session Close ({mode})\n{'=' * 60}")
+        print(f"Session: S{result['session_number']}")
+        print(f"Date:    {result['date']}")
+        print(f"Title:   {result['title']}\n")
+
+        # Checklist with status icons
+        icons = {"done": "\u2705", "dry-run": "\U0001f4cb", "manual": "\U0001f449",
+                 "action-needed": "\U0001f6a8", "warning": "\u26a0\ufe0f",
+                 "skipped": "\u23ed\ufe0f", "clean": "\u2705"}
+        print("--- Checklist 9 punti ---")
+        for item in result["checklist"]:
+            icon = icons.get(item["status"], "\u2753")
+            detail = f" — {item['detail']}" if item.get("detail") else ""
+            print(f"  {icon} [{item['step']}] {item['name']}: {item['status']}{detail}")
+
+        # Summary
+        s = result["summary"]
+        print(f"\nRisultato: {s['done']} done, {s['manual']} manual, "
+              f"{s['action_needed']} action-needed, {s['warnings']} warnings")
+
+        # Dirty repos detail
+        if result.get("dirty_repos"):
+            print("\n--- Repo con modifiche non committate ---")
+            for repo, info in result["dirty_repos"].items():
+                print(f"  {repo}: {info['count']} files")
+                for f in info.get("files", [])[:5]:
+                    print(f"    {f}")
+
+        # Unpushed repos detail
+        if result.get("unpushed_repos"):
+            print("\n--- Repo con commit non pushati ---")
+            for repo, info in result["unpushed_repos"].items():
+                print(f"  {repo}: {info['count']} commits")
+                for c in info.get("commits", [])[:3]:
+                    print(f"    {c}")
+
+        # Handoff
+        if result.get("handoff"):
+            print(f"\n{'=' * 60}")
+            print(result["handoff"])
+
+        if mode == "DRY RUN":
+            print("\nRun with --write to execute. Manual steps remain manual.")
+
+    sys.exit(0)
+
+
 def cmd_validate(args):
     from .validators import validate_closeout, validate_scan
     if args.input == "-":
@@ -819,6 +885,16 @@ def main():
     p.add_argument("--sessions-history", help="Path to sessions-history.md")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("session-close", help="Full 9-point session closeout orchestrator (wraps closeout + checks)")
+    p.add_argument("session_number", type=int, help="Session number (e.g. 141)")
+    p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
+    p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
+    p.add_argument("--write", action="store_true", help="Write files (default: dry-run preview)")
+    p.add_argument("--ai", action="store_true", help="Use LLM to generate narrative (requires API key)")
+    p.add_argument("--model", help="LLM model override")
+    p.add_argument("--sessions-history", help="Path to sessions-history.md")
+    p.add_argument("--json", action="store_true")
+
     p = sub.add_parser("validate", help="Validate a JSON output against acceptance criteria (Evaluator pattern)")
     p.add_argument("input", help="Path to JSON file or - for stdin")
     p.add_argument("--type", choices=["closeout", "scan"], default="closeout", help="Validation type (default: closeout)")
@@ -840,7 +916,7 @@ def main():
     cmds = {"scan": cmd_scan, "check": cmd_check, "fix": cmd_fix, "fix-tags": cmd_fix_tags,
             "discover": cmd_discover, "index": cmd_index, "css": cmd_css, "graph": cmd_graph,
             "link": cmd_link, "eval": cmd_eval, "ai": cmd_ai, "closeout": cmd_closeout,
-            "validate": cmd_validate}
+            "session-close": cmd_session_close, "validate": cmd_validate}
     cmds[args.command](args)
 
 
