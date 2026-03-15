@@ -7,6 +7,7 @@ tags: []
 
 > Plugin Obsidian per gestione sessioni AI: apertura, chiusura, context tracking.
 > Guardrails e regole: vedi `.cursorrules` nello stesso repo.
+> Workspace map: vedi `factory.yml` nella root workspace (mappa completa repos, stack, deploy).
 
 ## Identità
 | Campo | Valore |
@@ -68,4 +69,4 @@ bash /c/old/easyway/ado/scripts/ado-remote.sh pr-create hale-bopp-marginalia fea
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-15T06:00:06Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-15T09:00:05Z
