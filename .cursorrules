@@ -1,82 +1,68 @@
-# marginalia — .cursorrules
-# Regole operative per Cursor AI in questo repository.
+---
+title: "Cursorrules Master"
+tags: []
+---
 
-## Progetto
-marginalia è un CLI Python per la qualità dei vault Markdown.
-Repo ADO (primary): https://dev.azure.com/EasyWayData/EasyWay-DataPortal/_git/hale-bopp-marginalia
-Repo GitHub (mirror): https://github.com/hale-bopp-data/marginalia
-Org: hale-bopp-data (open source MIT)
-Circle: 2 — ADO primary, GitHub read-only mirror (S143)
-Path locale: C:\old\easyway\marginalia\
+# ☄️ CAVALCARE LE COMETE — Lo spirito EasyWay / HALE-BOPP
+# Puntiamo sempre in alto e non dobbiamo essere paurosi (G17).
+# Il grande folle possiede quella perfetta miscela di autoinganno e di ego
+# dove altri hanno fallito (G18). La sicurezza non crea eroi — se non c'è,
+# allora servono gli eroi (G19). GEDI: 19 principi in agents/agent_gedi/manifest.json
 
-## Setup & comandi rapidi
-```bash
-pip install -e .                          # installa in modalità editable
-python -m pytest tests/ -v               # test suite
-marginalia scan . --json                  # smoke test scan
-marginalia link . --json                  # smoke test link
-cd obsidian-plugin && npm ci && npm run build  # build plugin
-ruff check marginalia/ --select=E,F,W --ignore=E501  # lint
-```
+# 🚦 SEMAFORO — `.semaphore.json` nella root. Se yellow/red e non sei tu → STOP.
+# Guida: wiki/guides/repo/repo-semaphore.md
 
-## Struttura package Python
-```
-marginalia/cli.py          ← entrypoint, 10 subcommand
-marginalia/scanner.py      ← find_md_files (multi-path), scan_file, build_graph
-marginalia/linker.py       ← TF-IDF engine, build_suggestions, run_link
-marginalia/config.py       ← marginalia.yaml loader (zero deps)
-marginalia/fixer.py        ← 4 Giri fix pipeline
-marginalia/tags.py         ← taxonomy
-marginalia/brain.py        ← AI (OpenRouter/OpenAI/Ollama via urllib)
-obsidian-plugin/src/main.ts ← TypeScript Obsidian plugin
-tests/test_linker.py       ← pytest
-```
+# hale-bopp-marginalia — Obsidian Session Management Plugin
+# Branch: `feat→main` (NO develop) | Merge: no fast-forward
+- Remote primario: Azure DevOps (`dev.azure.com/EasyWayData`). PR, branch, CI/CD: TUTTO su ADO.
+- GitHub (`hale-bopp-data/hale-bopp-marginalia`): mirror pubblico per community.
 
-## Principi di codice
-- **Zero deps core**: scanner/linker/config/fixer/tags = SOLO stdlib. brain.py = urllib. No PyYAML → `_parse_yaml()` in config.py
-- **Python >= 3.9**: type hints sì, `X | Y` union (3.10+) da evitare
-- **Encoding**: sempre `encoding="utf-8", errors="replace"`
-- **Dry-run by default**: `--apply` per modificare file, backup .bak prima di write
-- **JSON output**: ogni subcommand deve supportare `--json`
+## GEDI Fix — Ogni fix deve essere strutturale e antifragile (S118)
+# 1. GEDI OODA obbligatorio — Observe → Orient → Decide → Act
+# 2. STRUTTURALE: causa root, non sintomo. ANTIFRAGILE: guardrail permanente.
+# 3. Presenta all'utente: causa root + fix proposto. Test: sistema più robusto?
+# GEDI Case #70 — Una patch non è un fix.
 
-## Scoring formula (linker.py) — NON modificare i coefficienti senza test
-```
-score = cosine + (0.08 × tag_overlap) + (0.04 × same_dir) + (0.02 × same_top_dir)
-```
+## GEDI Profiles — Le carte Magic (S129)
+# Auto-detect dal branch: $GEDI_PROFILE env → hooks/{profile}/gedi.profile.json → fallback "ams"
+# 🟢 ESPLORATORE (dev) — feat/*, chore/*, spike/* — guardrail leggeri
+# 🟡 GUARDIANO (ams) — develop, staging, release/* — bilanciato (DEFAULT)
+# 🔴 SENTINELLA (prod) — main, master — massima protezione
+# Tool: `gedi-check --show-profile` | Profili: gedi-check/src/gedi_check/profiles/
 
-## Multi-vault (scan e link)
-- `args.vaults` è una lista (`nargs="*"`, default `["."]`)
-- `find_md_files()` accetta sia singolo path che lista di path
-- In multi-vault, i path vengono prefissati con `vault.name/` per evitare collisioni
-
-## Config auto-discovery
-- marginalia.yaml cercato in: cwd → vault dir(s)
-- CLI args hanno sempre precedenza sul config file
-
-## Obsidian plugin (TypeScript)
-- obsidian-plugin/src/main.ts — thin wrapper, chiama CLI via child_process
-- Zero logica di business nel plugin — tutto nel Python CLI
-- Desktop-only (isDesktopOnly: true in manifest.json)
-- Build: esbuild → main.js
-
-## CI/CD
-- .github/workflows/ci.yml
-- Matrix: Python 3.9, 3.10, 3.11, 3.12
-- Jobs: test → lint (ruff) → obsidian-plugin build
-- Artifact: main.js + manifest.json + styles.css
-
-## Regola Benchmark — Misurare SEMPRE prima e dopo (S122)
-- Ogni modifica batch (`fix`, `fix-tags`, `link --apply`) richiede metriche prima/dopo
-- Prima: `marginalia scan <vault>` (issue count) + Qdrant chunk count + frontmatter %
-- Dopo: stesse metriche → tabella delta
-- Senza numeri non c'e miglioramento, c'e solo opinione
-
-## Workflow & Connessioni
-| Cosa | Dove |
+## Regole assolute — MAI senza autorizzazione
+| # | Regola |
 |---|---|
-| Git workflow | `feat→main` (no develop), merge no-ff, semver tag per PyPI |
-| ADO operations (WI, PR) | → `easyway-wiki/guides/agents/agent-ado-operations.md` |
-| PR flusso standard | → `easyway-wiki/guides/polyrepo-git-workflow.md` |
-| PAT/secrets/gateway | → `easyway-wiki/guides/connection-registry.md` |
-| Guard hooks (Iron Dome) | → `bash /c/old/easyway/infra/scripts/hooks/install-hooks.sh` |
-| Tool unico ADO | `bash /c/old/easyway/ado/scripts/ado-remote.sh` — MAI curl inline |
+| G1 | MAI approvare/votare una PR |
+| G2 | MAI completare/mergiare una PR senza ok esplicito |
+| G3 | MAX 2 tentativi API ADO per la stessa azione |
+| G4 | MAI usare `-ExecutionPolicy Bypass` |
+| G5 | MAI pushare direttamente a main |
+| G6 | MAI creare PR senza Work Item (Regola del Palumbo) |
+| G7 | MAI creare PR se c'è una pendente sugli stessi file |
+| G8 | MAI `git pull` in deploy — sempre `fetch + reset --hard` |
+| G9 | MAI `--no-verify` per skippare hooks |
+| G10 | MAI `--force` — usare `--force-with-lease` |
+| G11 | Se il repo ha `develop`, PR verso `main` bloccate — passare da `develop` |
+| G12 | Branch Guard: pipeline blocca PR feat→main se develop esiste |
+| G13 | PR Auto-Link WI: dopo PR create, SEMPRE verificare WI linkato |
+| G14 | Tool canonico = `ado-remote.sh`. MAI PAT da file locali |
+| G15 | SSH: SEMPRE heredoc o script server-side. MAI quote annidate |
+| G16 | OGNI modifica server → aggiornare `Runbooks/server-full-setup.md` |
+| G17 | Git Cross-Repo: MAI git push/commit senza `cd <repo> &&` o `git -C` |
+
+## Security
+- Hardcoded secrets = **immediato revert**
+- Config MUST Fail-Fast (no defaults come `${PASS:-default}`)
+- Docker: pin versions, least privilege
+- Secrets/PAT SOLO su server `/opt/easyway/.env.secrets` (S88 gateway)
+
+## Documentazione
+- Ogni capability → guida in `easyway-wiki/guides/` con Cosa/Come/Perché/Q&A
+- **GEDI**: `easyway-agents/agents/agent_gedi/manifest.json` (19 principi)
+- **Governance Git**: `easyway-wiki/guides/polyrepo-git-workflow.md` (regole G1-G17)
+- **Operativo**: vedi `AGENTS.md` nello stesso repo per comandi, struttura, workflow ADO
+
+---
+> Context Sync Engine | Master: `easyway-wiki/templates/cursorrules-master.md`
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-15T18:00:05Z
