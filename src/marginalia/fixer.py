@@ -1,4 +1,4 @@
-"""Multi-pass vault fixer — the 5 Giri (rounds) with actual repairs.
+"""Multi-pass vault fixer — the 6 Giri (rounds) with actual repairs.
 
 Giro 0: Inventory — build file index, parse all frontmatter, snapshot state
 Giro 1: Frontmatter — add missing frontmatter, fill required fields
@@ -6,6 +6,7 @@ Giro 2: Tags — migrate flat→namespaced, merge duplicates, case normalize
 Giro 3: Links — fix stale markdown links using file index suggestions
 Giro 4: Obsidian — fix .gitignore, remove Untitled.canvas
 Giro 5: Wikilinks — resolve, tag-convert, or unwrap broken [[wikilinks]]
+Giro 6: Domain Tags — assign domain/ tags via taxonomy merge or path inference
 
 Each giro reads the state left by the previous one (no stale data).
 """
@@ -421,6 +422,137 @@ def giro5_wikilinks(vault_path, inventory, tag_patterns=None, dry_run=True):
     return fixes
 
 
+# --- Giro 6: Domain Tags ---
+
+# Path → domain inference map. Directory patterns that strongly imply a domain.
+# Only used when no domain/ tag exists AND no taxonomy merge resolves.
+_PATH_DOMAIN_MAP = {
+    "argos": "datalake",
+    "hale-bopp": "architecture",
+    "hale-bopp/db-hale-bopp": "db",
+    "hale-bopp/etl-hale-bopp": "datalake",
+    "Runbooks": "infra",
+    "security": "security",
+    "standards": "docs",
+    "chronicles": "docs",
+    "indices": "docs",
+    "planning": "platform",
+    "architecture": "architecture",
+    "concept": "architecture",
+    "deployment": "infra",
+    "etl": "datalake",
+    "UX": "frontend",
+    "governance": "docs",
+    "vision": "architecture",
+    "logs": "platform",
+    "Patterns": "docs",
+    "best-practices": "docs",
+    "control-plane": "agents",
+    "prompts": "agents",
+    "tools": "platform",
+    "use-cases": "docs",
+}
+
+
+def giro6_domain_tags(vault_path, inventory, taxonomy_path=None, dry_run=True):
+    """Assign domain/ tags to files that don't have one.
+
+    Three strategies in confidence order:
+    1. TAXONOMY — file has a flat tag that is a domain alias in taxonomy merges
+       e.g. flat tag "argos" + merge "argos: datalake" → add domain/datalake
+    2. PATH — directory strongly implies a domain (e.g. security/ → domain/security)
+    3. SKIP — not inferrable, reported for manual review or brain analysis
+
+    Only touches files with frontmatter + tags but no domain/ tag.
+    Skips templates and archive.
+    """
+    base = Path(vault_path)
+    fixes = []
+    skipped = []
+
+    # Load taxonomy merges for strategy 1
+    domain_merges = {}  # flat value → canonical domain
+    domain_values = set()
+    if taxonomy_path:
+        namespaces, merges, _ = load_taxonomy(taxonomy_path)
+        domain_values = namespaces.get("domain", set())
+        # Merges that resolve to a domain value
+        for alias, target in merges.items():
+            if target in domain_values:
+                domain_merges[alias] = target
+
+    for f in inventory["md_files"]:
+        rel = str(f.relative_to(base)).replace("\\", "/")
+
+        # Skip template/archive
+        if "template" in rel.lower() or "/archive/" in rel or rel.startswith("archive/"):
+            continue
+
+        content = _read_file(f)
+        if content is None:
+            continue
+
+        fm = parse_frontmatter(content)
+        if fm is None:
+            continue
+
+        tags = extract_tags(fm)
+        if any(t.startswith("domain/") for t in tags):
+            continue  # already has domain tag
+
+        # Strategy 1: TAXONOMY — check if any existing flat tag resolves to a domain
+        resolved_domain = None
+        resolved_via = None
+        for tag in tags:
+            # Strip namespace if present (e.g. process/datalake → datalake)
+            val = tag.split("/")[-1] if "/" in tag else tag
+            if val in domain_merges:
+                resolved_domain = domain_merges[val]
+                resolved_via = f"taxonomy merge: {val} -> {resolved_domain}"
+                break
+            # Direct match on domain values
+            if val in domain_values:
+                resolved_domain = val
+                resolved_via = f"taxonomy direct: {val}"
+                break
+
+        # Strategy 2: PATH — directory implies domain
+        if not resolved_domain:
+            norm_path = rel.replace("\\", "/")
+            # Try longest prefix first (hale-bopp/db-hale-bopp before hale-bopp)
+            for prefix in sorted(_PATH_DOMAIN_MAP.keys(), key=len, reverse=True):
+                if norm_path.startswith(prefix + "/") or norm_path.startswith(prefix.lower() + "/"):
+                    resolved_domain = _PATH_DOMAIN_MAP[prefix]
+                    resolved_via = f"path inference: {prefix}/ -> {resolved_domain}"
+                    break
+
+        # Strategy 3: SKIP
+        if not resolved_domain:
+            skipped.append({
+                "file": rel,
+                "existing_tags": tags[:5],
+                "reason": "no taxonomy merge or path pattern matched",
+            })
+            continue
+
+        # Apply: add domain/X to frontmatter
+        domain_tag = f"domain/{resolved_domain}"
+        new_content = _add_tag_to_frontmatter(content, domain_tag)
+
+        if new_content != content:
+            fixes.append({
+                "file": rel,
+                "action": "add_domain_tag",
+                "domain_tag": domain_tag,
+                "strategy": resolved_via,
+                "existing_tags": tags[:5],
+            })
+            if not dry_run:
+                _write_file(f, new_content)
+
+    return {"fixes": fixes, "skipped": skipped}
+
+
 # --- Orchestrator: run all giri ---
 
 def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
@@ -438,7 +570,7 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
         Dict with results per giro and summary stats.
     """
     if giri is None:
-        giri = [0, 1, 2, 3, 4, 5]
+        giri = [0, 1, 2, 3, 4, 5, 6]
 
     results = {
         "action": "marginalia-fix",
@@ -491,6 +623,19 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
         g5 = giro5_wikilinks(vault_path, inventory, dry_run=dry_run)
         results["giri"]["5_wikilinks"] = {"fixes": len(g5), "details": g5}
         total_fixes += len(g5)
+
+    if 6 in giri:
+        # Re-build inventory after tag changes from giro 2
+        if not dry_run:
+            inventory = giro0_inventory(vault_path)
+        g6 = giro6_domain_tags(vault_path, inventory, taxonomy_path=taxonomy_path, dry_run=dry_run)
+        results["giri"]["6_domain_tags"] = {
+            "fixes": len(g6["fixes"]),
+            "skipped": len(g6["skipped"]),
+            "details": g6["fixes"],
+            "needs_review": g6["skipped"],
+        }
+        total_fixes += len(g6["fixes"])
 
     results["total_fixes"] = total_fixes
     results["status"] = "applied" if not dry_run else "dry_run"

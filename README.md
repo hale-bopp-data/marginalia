@@ -40,9 +40,11 @@ marginalia scan ~/my-vault/ --json
 
 Checks for:
 - Missing or incomplete YAML frontmatter (`title`, `tags`, `status`, …)
-- Empty sections (heading with no content below it)
+- Empty sections — heading-hierarchy-aware: ignores sections with sub-headings, code blocks, templates, and archive files
 - Broken internal links — with "did you mean?" suggestions
 - Broken `[[wikilinks]]`
+
+Add `--tag` to auto-tag files with issues for Obsidian review (see `scan --tag` below).
 
 ### `link` — TF-IDF link suggestions
 
@@ -70,6 +72,44 @@ marginalia fix-tags ~/my-vault/                     # dry-run
 marginalia fix-tags ~/my-vault/ --apply
 marginalia fix-tags ~/my-vault/ --taxonomy my.yml   # custom taxonomy
 ```
+
+### `tags` — Tag Dictionary & Inventory (L0)
+
+```bash
+# Fast: read existing frontmatter, detect synonyms by pattern
+marginalia tags ~/my-vault/
+marginalia tags ~/my-vault/ --out tag-dictionary.json
+
+# Full: LLM reads each page, suggests tags with reasoning
+marginalia tags ~/my-vault/ --analyze --out tag-inventory.json
+marginalia tags ~/my-vault/ --analyze --taxonomy taxonomy.yml --out tag-inventory.json
+```
+
+**Fast mode** (default): reads existing frontmatter tags, counts usage, detects synonym candidates by name similarity.
+
+**Analyze mode** (`--analyze`): for each page, the LLM reads the content and suggests tags with **reasoning** (why this tag?). The inventory records `{file, existing_tags, suggested: [{tag, reason}]}` for every page. Tags with similar reasons across different pages = synonyms.
+
+**Rationalize mode** (`--rationalize`): the LLM sees the *full* tag landscape across all files and proposes merges — non-canonical domains → canonical, zombie namespaces → canonical, flat tags → namespaced. Returns proposed YAML merges ready to paste into the taxonomy.
+
+Designed for a 3-level tag lifecycle:
+1. `tags --analyze` (L0) — per-page inventory with reasoning ("what's there and why?")
+2. `tags --rationalize` (L0→L1) — global rationalization across all tags
+3. Edit taxonomy YAML (L1) — curate synonyms in `merges:` section
+4. `fix-tags --taxonomy` (L2) — apply normalisation across the vault
+
+### `scan --tag` + `untag` — Obsidian review workflow
+
+```bash
+# Tag files with issues so you can find them in Obsidian
+marginalia scan ~/my-vault/ --tag
+
+# In Obsidian: search  tag:quality/review-needed
+
+# After manual review, remove the tags
+marginalia untag ~/my-vault/ --apply
+```
+
+Every `scan` with issues prints an Obsidian tip at the end showing how to find affected files.
 
 ### `check` — Obsidian health check
 
