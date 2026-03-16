@@ -51,10 +51,12 @@ def load_taxonomy(yaml_path=None):
         return DEFAULT_NAMESPACES, DEFAULT_MERGES, DEFAULT_CASE_FIXES
 
     # Simple YAML parsing without pyyaml dependency
+    # When a YAML taxonomy exists, it IS the source of truth (G16).
+    # Defaults are only for when no YAML is provided.
     content = path.read_text(encoding="utf-8")
-    namespaces = dict(DEFAULT_NAMESPACES)
-    merges = dict(DEFAULT_MERGES)
-    case_fixes = dict(DEFAULT_CASE_FIXES)
+    namespaces = {}
+    merges = {}
+    case_fixes = {}
 
     current_section = None
     current_ns = None
@@ -101,6 +103,50 @@ def load_taxonomy(yaml_path=None):
                 case_fixes[m.group(1)] = m.group(2)
 
     return namespaces, merges, case_fixes
+
+
+def validate_taxonomy(yaml_path):
+    """Validate a taxonomy YAML file. Returns list of issues (empty = valid)."""
+    issues = []
+    path = Path(yaml_path)
+    if not path.exists():
+        return [{"type": "file_not_found", "detail": f"Taxonomy file not found: {yaml_path}"}]
+
+    namespaces, merges, case_fixes = load_taxonomy(yaml_path)
+
+    # Check: merge targets must exist as namespace values
+    all_values = set()
+    for ns, vals in namespaces.items():
+        all_values.update(vals)
+
+    for alias, target in merges.items():
+        if target not in all_values:
+            issues.append({
+                "type": "orphan_merge",
+                "detail": f"merge '{alias}: {target}' — target '{target}' not in any namespace",
+            })
+
+    # Check: no duplicate values across namespaces (except intentional)
+    seen_values = {}  # value → [namespaces]
+    for ns, vals in namespaces.items():
+        for v in vals:
+            seen_values.setdefault(v, []).append(ns)
+    for v, nss in seen_values.items():
+        if len(nss) > 1:
+            issues.append({
+                "type": "duplicate_value",
+                "detail": f"value '{v}' appears in multiple namespaces: {', '.join(nss)}",
+            })
+
+    # Check: merge alias should not be a canonical namespace value
+    for alias in merges:
+        if alias in all_values and merges[alias] != alias:
+            issues.append({
+                "type": "alias_shadows_canonical",
+                "detail": f"merge alias '{alias}' is also a canonical value — ambiguous",
+            })
+
+    return issues
 
 
 def migrate_tag(tag, namespaces=None, merges=None, case_fixes=None):
