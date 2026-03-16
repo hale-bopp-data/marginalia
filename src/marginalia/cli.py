@@ -7,8 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .scanner import find_md_files, scan_file, build_file_index, build_graph
-from .tags import load_taxonomy, fix_tags_in_file
+from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
+                      tag_issues, untag_issues, REVIEW_TAG, build_tag_dictionary,
+                      build_tag_inventory, build_synonym_map_from_inventory,
+                      rationalize_tags, parse_frontmatter)
+from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
 
@@ -118,7 +121,325 @@ def cmd_scan(args):
             print(f"  ... and {len(all_issues) - 20} more")
         if not all_issues:
             print("No issues found. Vault is clean!")
+
+    # --tag: add review tag to files with issues
+    if getattr(args, "tag", False) and all_issues:
+        tag_result = tag_issues(primary_vault, all_issues, dry_run=False)
+        if args.json:
+            result["tag_result"] = tag_result
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            print(f"\n--- Tagged for review ---")
+            print(f"  Files tagged:  {tag_result['tagged']}")
+            print(f"  Already tagged: {tag_result['already']}")
+            print(f"  Skipped:       {tag_result['skipped']}")
+
+    # --strict: CI guardrail — fail if missing_domain_tag exceeds threshold
+    strict_threshold = getattr(args, "strict", None)
+    if strict_threshold is not None:
+        domain_issues = by_type.get("missing_domain_tag", 0)
+        if domain_issues > strict_threshold:
+            if not args.json:
+                print(f"\n--- STRICT MODE FAILED ---")
+                print(f"  missing_domain_tag: {domain_issues} (threshold: {strict_threshold})")
+                print(f"  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
+            sys.exit(1)
+
+    # Obsidian tip (always, if issues found and not JSON)
+    if all_issues and not args.json:
+        print(f"\n--- Find in Obsidian ---")
+        print(f"  Search: tag:{REVIEW_TAG}")
+        if not getattr(args, "tag", False):
+            print(f"  (run with --tag to auto-tag files with issues)")
+        print(f"  When fixed, run: marginalia untag <vault>")
+
     sys.exit(0 if not all_issues else 1)
+
+
+def cmd_tags(args):
+    vault = _ensure_vault(args.vault)
+    out_path = args.out
+    analyze = getattr(args, "analyze", False)
+    taxonomy = getattr(args, "taxonomy", None)
+
+    # --- Taxonomy validation (if provided) ---
+    if taxonomy:
+        tax_issues = validate_taxonomy(taxonomy)
+        if tax_issues:
+            print(f"\n--- Taxonomy validation: {len(tax_issues)} issues ---", file=sys.stderr)
+            for ti in tax_issues:
+                print(f"  [{ti['type']}] {ti['detail']}", file=sys.stderr)
+            print(file=sys.stderr)
+        else:
+            print(f"Taxonomy validated: {taxonomy} (no issues)", file=sys.stderr)
+
+    rationalize = getattr(args, "rationalize", False)
+
+    if rationalize:
+        # --- Global LLM rationalization: full landscape analysis ---
+        print(f"marginalia {__version__} -- Tag Rationalization (LLM Global)\n{'=' * 50}", file=sys.stderr)
+        print(f"Vault: {vault}", file=sys.stderr)
+        print(f"Analyzing full tag landscape...\n", file=sys.stderr)
+
+        result = rationalize_tags(vault, taxonomy_path=taxonomy)
+
+        if "error" in result:
+            print(f"ERROR: {result['error']}", file=sys.stderr)
+            sys.exit(1)
+
+        if out_path:
+            Path(out_path).write_text(
+                json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            # Domain merges
+            dm = result.get("domain_merges", [])
+            if dm:
+                print(f"--- Domain merges ({len(dm)}) ---", file=sys.stderr)
+                for m in dm:
+                    print(f"  {m.get('from','?'):35s} -> {m.get('to','?'):25s}  {m.get('reason','')[:50]}", file=sys.stderr)
+                print(file=sys.stderr)
+
+            # Namespace merges
+            nm = result.get("namespace_merges", [])
+            if nm:
+                print(f"--- Namespace merges ({len(nm)}) ---", file=sys.stderr)
+                for m in nm:
+                    print(f"  {m.get('from','?'):35s} -> {m.get('to','?'):25s}  {m.get('reason','')[:50]}", file=sys.stderr)
+                print(file=sys.stderr)
+
+            # Flat assignments
+            fa = result.get("flat_assignments", [])
+            if fa:
+                print(f"--- Flat tag assignments ({len(fa)}) ---", file=sys.stderr)
+                for a in fa[:20]:
+                    print(f"  {a.get('tag','?'):25s} -> {a.get('to','?'):25s}  {a.get('reason','')[:50]}", file=sys.stderr)
+                if len(fa) > 20:
+                    print(f"  ... +{len(fa) - 20} more", file=sys.stderr)
+                print(file=sys.stderr)
+
+            # Proposed YAML
+            yml = result.get("proposed_yaml_merges", "")
+            if yml:
+                print(f"--- Proposed taxonomy merges (add to easyway-taxonomy.yml) ---", file=sys.stderr)
+                print(yml, file=sys.stderr)
+
+            if out_path:
+                print(f"\nFull analysis saved to: {out_path}", file=sys.stderr)
+
+            print(f"\nNext steps:", file=sys.stderr)
+            print(f"  1. Review proposals above", file=sys.stderr)
+            print(f"  2. Add accepted merges to easyway-taxonomy.yml", file=sys.stderr)
+            print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <yml> --apply", file=sys.stderr)
+            print(f"  4. Run: marginalia fix <vault> --giri 6 --taxonomy <yml> --apply", file=sys.stderr)
+        sys.exit(0)
+
+    if analyze:
+        # --- Full LLM analysis: per-page tag suggestion with reasoning ---
+        print(f"marginalia {__version__} -- Tag Inventory (LLM Analysis)\n{'=' * 50}", file=sys.stderr)
+        print(f"Vault: {vault}", file=sys.stderr)
+        if taxonomy:
+            print(f"Taxonomy: {taxonomy}", file=sys.stderr)
+        print(f"Analyzing pages...\n", file=sys.stderr)
+
+        def _progress(cur, total, name):
+            if cur % 10 == 0 or cur == total:
+                print(f"  [{cur}/{total}] {name}", file=sys.stderr)
+
+        inventory = build_tag_inventory(vault, taxonomy_path=taxonomy, progress_cb=_progress)
+
+        if isinstance(inventory, dict) and "error" in inventory:
+            print(f"ERROR: {inventory['error']}", file=sys.stderr)
+            sys.exit(1)
+
+        # Build synonym map from inventory
+        synonym_map = build_synonym_map_from_inventory(inventory)
+
+        result = {
+            "action": "marginalia-tag-inventory", "version": __version__,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "vault": str(vault),
+            "pages_analyzed": len(inventory),
+            "unique_tags_suggested": len(synonym_map),
+            "inventory": inventory,
+            "synonym_map": synonym_map,
+        }
+
+        if out_path:
+            Path(out_path).write_text(
+                json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            print(f"\nPages analyzed: {len(inventory)}", file=sys.stderr)
+            print(f"Unique tags suggested: {len(synonym_map)}", file=sys.stderr)
+
+            # Show top suggested tags with reasons
+            if synonym_map:
+                print(f"\n--- Top suggested tags (with reasoning) ---", file=sys.stderr)
+                for entry in synonym_map[:20]:
+                    reasons = "; ".join(entry["reasons"][:2]) if entry["reasons"] else "(no reason)"
+                    print(f"  {entry['tag']:30s} {entry['count']:3d} pages  |  {reasons[:80]}", file=sys.stderr)
+                if len(synonym_map) > 20:
+                    print(f"  ... and {len(synonym_map) - 20} more", file=sys.stderr)
+
+            if out_path:
+                print(f"\nInventory written to: {out_path}", file=sys.stderr)
+            else:
+                print(f"\nRun with --out <path> to save inventory", file=sys.stderr)
+
+            print(f"\nNext steps:", file=sys.stderr)
+            print(f"  1. Review inventory: tags with similar reasons = synonyms", file=sys.stderr)
+            print(f"  2. Add merges to easyway-taxonomy.yml", file=sys.stderr)
+            print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply", file=sys.stderr)
+        sys.exit(0)
+
+    # --- Fast mode: read existing frontmatter (no LLM) ---
+    result = build_tag_dictionary(vault)
+
+    if out_path:
+        out_data = {
+            "action": "marginalia-tag-dictionary", "version": __version__,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "vault": str(vault),
+            "total": result["total"],
+            "namespaced": result["namespaced"],
+            "flat": result["flat"],
+            "tags": result["tags"],
+            "synonym_groups": result["synonym_groups"],
+        }
+        Path(out_path).write_text(
+            json.dumps(out_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        print(f"marginalia {__version__} -- Tag Dictionary (L0)\n{'=' * 50}")
+        print(f"Vault: {vault}")
+        print(f"Total tags:   {result['total']}")
+        print(f"  Namespaced: {result['namespaced']}")
+        print(f"  Flat:       {result['flat']}  (need resolution)\n")
+
+        flat_tags = [e for e in result["tags"] if e["namespace"] is None]
+        if flat_tags:
+            print(f"--- Top flat tags ({len(flat_tags)} total, need namespace) ---")
+            for e in flat_tags[:20]:
+                print(f"  {e['tag']:30s} {e['count']:3d} files")
+            if len(flat_tags) > 20:
+                print(f"  ... and {len(flat_tags) - 20} more")
+            print()
+
+        if result["synonym_groups"]:
+            print(f"--- Synonym candidates ({len(result['synonym_groups'])}) ---")
+            for g in result["synonym_groups"][:15]:
+                cands = ", ".join(g["candidates"])
+                print(f"  {g['flat_tag']:20s} ({g['flat_count']} files) -> {cands}")
+            if len(result["synonym_groups"]) > 15:
+                print(f"  ... and {len(result['synonym_groups']) - 15} more")
+            print()
+
+        # S155: Smart pre-filtering results
+        auto_resolved = result.get("auto_resolved", [])
+        pattern_merges = result.get("pattern_merges", [])
+        prune_candidates = result.get("prune_candidates", [])
+
+        if auto_resolved:
+            print(f"--- Auto-resolvable ({len(auto_resolved)}) --- [single synonym match, no LLM needed]")
+            for a in auto_resolved[:15]:
+                print(f"  {a['flat_tag']:25s} -> {a['resolved_to']:25s}  [{a['rule']}]")
+            if len(auto_resolved) > 15:
+                print(f"  ... and {len(auto_resolved) - 15} more")
+            print()
+
+        if pattern_merges:
+            print(f"--- Pattern merges ({len(pattern_merges)}) --- [rule-based, no LLM needed]")
+            for p in pattern_merges[:15]:
+                print(f"  {p['flat_tag']:25s} -> {p['resolved_to']:25s}  [{p['rule']}]")
+            if len(pattern_merges) > 15:
+                print(f"  ... and {len(pattern_merges) - 15} more")
+            print()
+
+        if prune_candidates:
+            print(f"--- Prune candidates ({len(prune_candidates)}) --- [1 file, no match, low value]")
+            for p in prune_candidates[:10]:
+                print(f"  {p['flat_tag']:25s}  in {p['file'][:50]}")
+            if len(prune_candidates) > 10:
+                print(f"  ... and {len(prune_candidates) - 10} more")
+            print()
+
+        # Summary: how much LLM work is eliminated
+        remaining = result["flat"] - len(auto_resolved) - len(pattern_merges) - len(prune_candidates)
+        if auto_resolved or pattern_merges or prune_candidates:
+            print(f"--- Smart filtering summary ---")
+            print(f"  Flat tags:         {result['flat']}")
+            print(f"  Auto-resolved:     {len(auto_resolved)}  (apply with --auto-resolve)")
+            print(f"  Pattern merges:    {len(pattern_merges)}  (apply with --auto-resolve)")
+            print(f"  Prune candidates:  {len(prune_candidates)}  (review with --prune)")
+            print(f"  Remaining for LLM: {remaining}")
+            print()
+
+        if out_path:
+            print(f"Dictionary written to: {out_path}")
+        else:
+            print("Run with --out <path> to write tag-dictionary.json")
+
+        # Coverage: count missing_domain_tag from a quick scan
+        from .scanner import extract_tags as _extract_tags
+        _all_files = find_md_files(vault)
+        no_domain = 0
+        active_files = 0
+        for _f in _all_files:
+            _rel = str(_f.relative_to(vault)).replace("\\", "/")
+            if "template" in _rel.lower() or "/archive/" in _rel or _rel.startswith("archive/"):
+                continue
+            active_files += 1
+            try:
+                _content = _f.read_text(encoding="utf-8", errors="replace")
+                _fm = parse_frontmatter(_content)
+                if _fm:
+                    _tags = _extract_tags(_fm)
+                    if not any(t.startswith("domain/") for t in _tags):
+                        no_domain += 1
+                else:
+                    no_domain += 1
+            except Exception:
+                pass
+        pct = round(no_domain / max(active_files, 1) * 100)
+        print(f"--- RAG coverage ---")
+        print(f"  Files without domain/ tag: {no_domain}/{active_files} ({pct}%)")
+        if pct > 20:
+            print(f"  WARNING: {pct}% of files invisible to RAG domain routing")
+        print()
+
+        print(f"For LLM-powered analysis with reasoning: marginalia tags <vault> --analyze")
+        print(f"\nNext steps:")
+        print(f"  1. Review flat tags and synonym candidates above")
+        print(f"  2. Add merges to easyway-taxonomy.yml")
+        print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply")
+    sys.exit(0)
+
+
+def cmd_untag(args):
+    vault = _ensure_vault(args.vault)
+    dry_run = not args.apply
+    mode = "DRY RUN" if dry_run else "APPLIED"
+    cleaned = untag_issues(vault, dry_run=dry_run)
+    if args.json:
+        print(json.dumps({"action": "marginalia-untag", "version": __version__,
+            "timestamp": datetime.now(timezone.utc).isoformat(), "vault": str(vault),
+            "mode": mode, "files_cleaned": cleaned, "tag": REVIEW_TAG,
+        }, ensure_ascii=False, indent=2), flush=True)
+    else:
+        print(f"marginalia {__version__} -- Untag Review ({mode})\n{'=' * 50}")
+        print(f"Vault: {vault}")
+        print(f"Tag removed: {REVIEW_TAG}")
+        print(f"Files cleaned: {cleaned}")
+        if dry_run:
+            print("\nRun with --apply to remove tags.")
+    sys.exit(0)
 
 
 def cmd_check(args):
@@ -804,6 +1125,21 @@ def main():
     p.add_argument("--config", help="Path to marginalia.yaml (auto-discovered if omitted)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--require", help="Required frontmatter fields (comma-separated)")
+    p.add_argument("--tag", action="store_true", help="Add quality/review-needed tag to files with issues (for Obsidian filtering)")
+    p.add_argument("--strict", type=int, metavar="N", help="Exit code 1 if missing_domain_tag > N (CI guardrail, e.g. --strict 0)")
+
+    p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("--out", "-o", help="Output path for tag-dictionary.json")
+    p.add_argument("--analyze", action="store_true", help="LLM analysis: read each page, suggest tags with reasoning (requires API key)")
+    p.add_argument("--rationalize", action="store_true", help="LLM global rationalization: propose taxonomy merges across all tags")
+    p.add_argument("--taxonomy", help="Taxonomy YAML for canonical value hints during analysis")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("untag", help="Remove quality/review-needed tags after manual review")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("--apply", action="store_true", help="Apply (default: dry-run)")
+    p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("check", help="Obsidian health checks")
     p.add_argument("vault", nargs="?", default=".")
@@ -913,10 +1249,11 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    cmds = {"scan": cmd_scan, "check": cmd_check, "fix": cmd_fix, "fix-tags": cmd_fix_tags,
-            "discover": cmd_discover, "index": cmd_index, "css": cmd_css, "graph": cmd_graph,
-            "link": cmd_link, "eval": cmd_eval, "ai": cmd_ai, "closeout": cmd_closeout,
-            "session-close": cmd_session_close, "validate": cmd_validate}
+    cmds = {"scan": cmd_scan, "tags": cmd_tags, "untag": cmd_untag, "check": cmd_check, "fix": cmd_fix,
+            "fix-tags": cmd_fix_tags, "discover": cmd_discover, "index": cmd_index,
+            "css": cmd_css, "graph": cmd_graph, "link": cmd_link, "eval": cmd_eval,
+            "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
+            "validate": cmd_validate}
     cmds[args.command](args)
 
 

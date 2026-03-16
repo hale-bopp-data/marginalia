@@ -21,19 +21,88 @@ from pathlib import Path
 from .scanner import find_md_files, parse_frontmatter, extract_tags
 
 
+def _find_connector():
+    """Find openrouter.sh connector path (EasyWay ecosystem integration)."""
+    # Walk up from marginalia source to find the connectors directory
+    candidates = [
+        os.environ.get("MARGINALIA_CONNECTOR", ""),
+        os.path.expanduser("~/easyway-agents/scripts/connections/openrouter.sh"),
+    ]
+    # Relative to this file: ../../agents/scripts/connections/openrouter.sh
+    src_dir = Path(__file__).resolve().parent
+    for parent in [src_dir] + list(src_dir.parents)[:5]:
+        candidates.append(str(parent / "agents" / "scripts" / "connections" / "openrouter.sh"))
+        candidates.append(str(parent / "easyway" / "agents" / "scripts" / "connections" / "openrouter.sh"))
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
 def _llm_call(prompt, system_prompt="You are a helpful assistant for organizing Markdown notes.",
               api_key=None, base_url=None, model=None, max_tokens=500):
-    """Call an OpenAI-compatible LLM API."""
-    api_key = api_key or os.environ.get("MARGINALIA_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
-    base_url = base_url or os.environ.get("MARGINALIA_API_URL", "https://openrouter.ai/api/v1")
+    """Call an LLM. Strategy order:
+
+    1. EasyWay connector (openrouter.sh) — uses SSH gateway, secrets on server (G16)
+    2. Direct API call — requires local API key
+    """
+    import subprocess
+
     model = model or os.environ.get("MARGINALIA_MODEL", "deepseek/deepseek-chat")
+
+    # Strategy 1: EasyWay connector — call OpenRouter API via SSH gateway
+    # Uses server.sh exec to run curl on the server where secrets live.
+    # This avoids the quoting hell of passing long prompts as bash arguments.
+    connector_dir = _find_connector()
+    if connector_dir:
+        server_sh = os.path.join(os.path.dirname(connector_dir), "server.sh")
+        if os.path.isfile(server_sh):
+            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+            # Write prompt to temp file, send via stdin to avoid quoting
+            import tempfile
+            try:
+                body = json.dumps({
+                    "model": model,
+                    "messages": [{"role": "user", "content": full_prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.3,
+                }, ensure_ascii=True)
+                # SSH exec: source secrets, curl OpenRouter
+                cmd = (
+                    'source /opt/easyway/.env.secrets 2>/dev/null; '
+                    'curl -sf -X POST https://openrouter.ai/api/v1/chat/completions '
+                    '-H "Authorization: Bearer $OPENROUTER_API_KEY" '
+                    '-H "Content-Type: application/json" '
+                    "-d '" + body.replace("'", "'\\''") + "'"
+                )
+                result = subprocess.run(
+                    ["bash", server_sh, "exec", cmd],
+                    capture_output=True, text=True, timeout=60, encoding="utf-8"
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    data = json.loads(result.stdout)
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if content:
+                        return content
+            except Exception:
+                pass  # fall through to direct API
+
+    # Strategy 2: Direct API call (local key required)
+    api_key = api_key or os.environ.get("MARGINALIA_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+    if not base_url:
+        if os.environ.get("MARGINALIA_API_URL"):
+            base_url = os.environ["MARGINALIA_API_URL"]
+        elif os.environ.get("DEEPSEEK_API_KEY") and not os.environ.get("MARGINALIA_API_KEY"):
+            base_url = "https://api.deepseek.com"
+        else:
+            base_url = "https://openrouter.ai/api/v1"
 
     if not api_key:
         return None
 
     url = f"{base_url}/chat/completions"
     body = json.dumps({
-        "model": model,
+        "model": model.split("/")[-1] if "deepseek" in base_url else model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
@@ -56,45 +125,75 @@ def _llm_call(prompt, system_prompt="You are a helpful assistant for organizing 
 
 
 def suggest_tags(filepath, existing_tags=None, taxonomy_hint=None):
-    """Use LLM to suggest tags for a file based on its content."""
+    """Use LLM to suggest tags for a file based on its content.
+
+    Returns list of tag strings (backward compatible).
+    Use suggest_tags_explained() for tag + reason pairs.
+    """
+    result = suggest_tags_explained(filepath, existing_tags, taxonomy_hint)
+    if result:
+        return [r["tag"] for r in result]
+    return None
+
+
+def suggest_tags_explained(filepath, existing_tags=None, taxonomy_hint=None, taxonomy_values=None):
+    """Use LLM to suggest tags for a file with reasoning.
+
+    Returns list of dicts: [{"tag": "domain/security", "reason": "discusses RLS and RBAC policies"}]
+    Each entry explains WHY this tag was chosen — used to build the tag dictionary.
+    """
     try:
         content = Path(filepath).read_text(encoding="utf-8", errors="replace")
     except Exception:
         return None
 
-    # Truncate to first 2000 chars for LLM context
-    snippet = content[:2000]
+    # Truncate to first 2500 chars for LLM context
+    snippet = content[:2500]
 
     tax_hint = ""
     if taxonomy_hint:
         tax_hint = f"\nAvailable tag namespaces: {', '.join(taxonomy_hint)}"
+
+    tax_values = ""
+    if taxonomy_values:
+        tax_values = f"\nKnown canonical values per namespace:\n"
+        for ns, vals in taxonomy_values.items():
+            tax_values += f"  {ns}/: {', '.join(vals)}\n"
 
     existing = ""
     if existing_tags:
         existing = f"\nCurrent tags: {', '.join(existing_tags)}"
 
     prompt = f"""Analyze this Markdown document and suggest appropriate tags.
-{tax_hint}{existing}
+{tax_hint}{tax_values}{existing}
 
 Rules:
 - Use namespace/value format (e.g., domain/security, artifact/guide, tech/python)
-- Max 5 tags
-- Return ONLY a JSON array of tag strings, nothing else
+- Prefer existing canonical values when they fit
+- Max 7 tags
+- For EACH tag, explain in one sentence WHY it applies to this document
+- Return ONLY a JSON array of objects: [{{"tag": "namespace/value", "reason": "why this tag"}}]
 
 Document:
 ```
 {snippet}
 ```"""
 
-    result = _llm_call(prompt, system_prompt="You are a document tagger. Return only JSON arrays of tags.")
+    result = _llm_call(prompt, max_tokens=800,
+                       system_prompt="You are a document tagger. Return only JSON arrays of tag objects with reasoning.")
     if result and not result.startswith("[LLM"):
-        # Parse JSON array from response
         try:
-            # Extract JSON array even if wrapped in markdown
             match = re.search(r"\[.*?\]", result, re.DOTALL)
             if match:
-                tags = json.loads(match.group(0))
-                return [t for t in tags if isinstance(t, str)]
+                parsed = json.loads(match.group(0))
+                # Normalize: accept both {"tag": ..., "reason": ...} and plain strings
+                out = []
+                for item in parsed:
+                    if isinstance(item, dict) and "tag" in item:
+                        out.append({"tag": item["tag"], "reason": item.get("reason", "")})
+                    elif isinstance(item, str):
+                        out.append({"tag": item, "reason": ""})
+                return out if out else None
         except json.JSONDecodeError:
             pass
     return None
@@ -220,9 +319,12 @@ Be concise and actionable."""
 
 
 def is_available():
-    """Check if LLM brain is configured (API key present)."""
+    """Check if LLM brain is configured (connector or API key)."""
+    if _find_connector():
+        return True
     return bool(
-        os.environ.get("LEVI_API_KEY") or
+        os.environ.get("MARGINALIA_API_KEY") or
+        os.environ.get("DEEPSEEK_API_KEY") or
         os.environ.get("OPENAI_API_KEY") or
         os.environ.get("OPENROUTER_API_KEY")
     )
