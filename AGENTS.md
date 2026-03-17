@@ -1,66 +1,60 @@
-# AGENTS.md — marginalia
+---
+title: "Agents Master"
+tags: []
+---
 
-> Tool Python CLI per la qualità dei vault Markdown (Obsidian, PhD, team docs).
+# AGENTS.md — hale-bopp-marginalia
+
+> Plugin Obsidian per gestione sessioni AI: apertura, chiusura, context tracking.
 > Guardrails e regole: vedi `.cursorrules` nello stesso repo.
+> Workspace map: vedi `factory.yml` nella root workspace (mappa completa repos, stack, deploy).
 
 ## Identità
 | Campo | Valore |
 |---|---|
-| Cosa | Python CLI — scan, fix, link, eval per vault Markdown |
-| Linguaggio | Python >= 3.9 (zero deps core), TypeScript (Obsidian plugin) |
-| Repo | `https://github.com/hale-bopp-data/marginalia` |
-| Licenza | MIT |
-| Versione | → vedi `marginalia/__init__.py` → `__version__` |
-| Package | `pip install -e .` — zero dipendenze esterne obbligatorie |
+| Cosa | Plugin TypeScript per Obsidian — session management, closeout automation |
+| Linguaggio | TypeScript, Python (CLI) |
+| Branch | `feat→main` (NO develop) — PR target: `main` |
+
 
 ## Comandi rapidi
 ```bash
+ewctl commit
+# Build plugin
+cd obsidian-plugin && npm run build
+# Run tests
+pytest tests/
+# Install CLI
 pip install -e .
-python -m pytest tests/ -v --tb=short
-marginalia scan . --json
-marginalia link . --json
-cd obsidian-plugin && npm ci && npm run build
-ruff check marginalia/ --select=E,F,W --ignore=E501
 ```
 
 ## Struttura
 ```text
-marginalia/              # package Python (11 comandi CLI)
-  cli.py, scanner.py, linker.py, config.py, fixer.py
-  tags.py, obsidian.py, discovery.py, index_builder.py
-  brain.py, eval.py
-obsidian-plugin/         # TypeScript plugin Obsidian
-tests/                   # pytest suite
-.github/workflows/ci.yml
+src/
+  marginalia/        # Python CLI package
+obsidian-plugin/     # Obsidian plugin (TypeScript)
+tests/               # Test suite
+docs/                # Documentation
+pyproject.toml       # Python package metadata
 ```
 
-## Regole per agenti
-| # | Regola |
+## Regole specifiche marginalia
+| Regola | Dettaglio |
 |---|---|
-| 1 | MAI modificare coefficienti scoring in `linker.py` senza test |
-| 2 | MAI aggiungere dipendenze esterne ai moduli core — solo stdlib |
-| 3 | MAI scrivere file utente senza backup preventivo (`.bak`) |
-| 4 | Aggiornare `__version__` in `__init__.py` ad ogni release (semver) |
-| 5 | `pytest tests/` deve essere verde prima di PR |
-| 6 | Ogni subcommand deve supportare `--json` output |
-| 7 | `scan` e `link` accettano `nargs="*"` — path multipli |
-| 8 | Dry-run di default — operazioni distruttive richiedono `--apply` |
-
-## Riferimenti
-| Cosa | Dove |
-|---|---|
-| Scoring formula | → vedi `marginalia/linker.py` (cosine + tag_overlap + dir bonus) |
-| CLI commands (11) | → vedi `marginalia/cli.py` o `marginalia --help` |
-| Config format | → vedi `marginalia.yaml` in qualsiasi vault |
-| Eval RAG workflow | → vedi `tests/test_eval.py` per formato snapshot/compare |
-| Regola Benchmark S122 | → vedi `easyway-wiki/guides/lessons-learned.md` |
-| Convenzioni codice | → vedi `.cursorrules` nello stesso repo |
+| Plugin | Obsidian: build con esbuild |
+| CLI | Python: `marginalia` command per session management |
+| Test | plugin in Obsidian dev vault prima di rilasciare |
 
 ## Workflow & Connessioni
 | Cosa | Dove |
 |---|---|
-| PR flusso (GitHub-primary) | → vedi `easyway-wiki/guides/polyrepo-git-workflow.md` |
-| ADO ↔ GitHub | Ogni commit/PR deve referenziare `AB#NNN` — vedi `.cursorrules` |
+| ADO operations (WI, PR) | → vedi `easyway-wiki/guides/agents/agent-ado-operations.md` |
+| PR flusso standard | → vedi `easyway-wiki/guides/polyrepo-git-workflow.md` |
+| PAT/secrets/gateway | → vedi `easyway-wiki/guides/connection-registry.md` |
+| Branch strategy | → vedi `easyway-wiki/guides/branch-strategy-config.md` |
+| Tool unico | `bash /c/old/easyway/agents/scripts/connections/ado.sh` — MAI curl inline, MAI az login |
+
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-16T15:00:12Z
