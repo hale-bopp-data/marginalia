@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 SKIP_DIRS = {".git", "node_modules", ".obsidian", "__pycache__", "dist", "build", ".cache", ".trash"}
@@ -193,7 +194,50 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None):
                     "auto_fixable": False,
                 })
 
-    # 1b. Domain tag coverage — files without domain/ tags are invisible to RAG routing
+    # 1b. Frontmatter quality — Giro 7b (S156)
+    # Frontmatter exists but content is placeholder/stale → RAG indexes garbage metadata
+    if fm is not None:
+        # Check 1: summary_todo — summary missing, placeholder, or too short
+        _PLACEHOLDER_PATTERNS = {"todo", "tbd", "fixme", "xxx", "...", "placeholder", "da completare", "da fare", ">", "|", ">-", "|-"}
+        summary_val = fm.get("summary", "")
+        if summary_val:
+            summary_clean = summary_val.strip().strip("'\"")
+            if summary_clean.lower() in _PLACEHOLDER_PATTERNS or len(summary_clean) < 10:
+                issues.append({
+                    "file": rel_path, "type": "summary_todo", "line": 1,
+                    "description": f"Summary is placeholder or too short (<10 chars): \"{summary_clean}\"",
+                    "auto_fixable": False,
+                })
+
+        # Check 2: stale_draft — status: draft with updated > 30 days ago
+        status_val = fm.get("status", "").strip().strip("'\"").lower()
+        updated_val = fm.get("updated", "").strip().strip("'\"")
+        if status_val == "draft" and updated_val:
+            try:
+                updated_date = date.fromisoformat(updated_val)
+                days_stale = (date.today() - updated_date).days
+                if days_stale > 30:
+                    issues.append({
+                        "file": rel_path, "type": "stale_draft", "line": 1,
+                        "description": f"Draft stale: status=draft, last updated {days_stale} days ago ({updated_val})",
+                        "auto_fixable": False,
+                    })
+            except (ValueError, TypeError):
+                pass  # unparseable date — not our problem here
+
+        # Check 3: empty_required_fields — id/title/summary present but empty or whitespace
+        for field in ("id", "title", "summary"):
+            val = fm.get(field, None)
+            if val is not None:
+                clean = val.strip().strip("'\"").strip()
+                if not clean:
+                    issues.append({
+                        "file": rel_path, "type": "empty_required_fields", "line": 1,
+                        "description": f"Field '{field}' is present but empty",
+                        "auto_fixable": False,
+                    })
+
+    # 1c. Domain tag coverage — files without domain/ tags are invisible to RAG routing
     if fm is not None:
         tags = extract_tags(fm)
         has_domain = any(t.startswith("domain/") for t in tags)
