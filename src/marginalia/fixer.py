@@ -1,4 +1,4 @@
-"""Multi-pass vault fixer — the 6 Giri (rounds) with actual repairs.
+"""Multi-pass vault fixer — the 7 Giri (rounds) with actual repairs.
 
 Giro 0: Inventory — build file index, parse all frontmatter, snapshot state
 Giro 1: Frontmatter — add missing frontmatter, fill required fields
@@ -7,6 +7,7 @@ Giro 3: Links — fix stale markdown links using file index suggestions
 Giro 4: Obsidian — fix .gitignore, remove Untitled.canvas
 Giro 5: Wikilinks — resolve, tag-convert, or unwrap broken [[wikilinks]]
 Giro 6: Domain Tags — assign domain/ tags via taxonomy merge or path inference
+Giro 7: Frontmatter Quality — fix stale drafts, placeholder summaries, empty fields
 
 Each giro reads the state left by the previous one (no stale data).
 """
@@ -15,7 +16,7 @@ import os
 import re
 import json
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from .scanner import find_md_files, parse_frontmatter, extract_tags, build_file_index, suggest_correct_path
 from .tags import load_taxonomy, migrate_tag, fix_tags_in_file
@@ -553,6 +554,229 @@ def giro6_domain_tags(vault_path, inventory, taxonomy_path=None, dry_run=True):
     return {"fixes": fixes, "skipped": skipped}
 
 
+# --- Giro 7: Frontmatter Quality (S156) ---
+
+# Stale draft classification rules — path prefix → new status.
+# Order: most specific first. First match wins.
+_STALE_DRAFT_RULES = [
+    # Auto-generated index pages are functional, not drafts
+    {"path_prefix": "indices/",      "new_status": "active",     "reason": "auto-generated MOC index"},
+    # Legacy webapp docs — schema/code from old portal
+    {"path_prefix": "easyway-webapp/", "new_status": "deprecated", "reason": "legacy portal schema"},
+    # Legacy orchestrations superseded by n8n/marginalia
+    {"path_prefix": "orchestrations/", "new_status": "deprecated", "reason": "legacy orchestration"},
+    # Old concepts/architecture — fossils
+    {"path_prefix": "concept/",      "new_status": "deprecated", "reason": "legacy concept doc"},
+    # Old directory
+    {"path_prefix": "old/",          "new_status": "deprecated", "reason": "archived content"},
+    # Log reports are snapshots, not drafts
+    {"path_prefix": "logs/",         "new_status": "deprecated", "reason": "historical log report"},
+]
+
+# Age threshold: drafts older than this (days) with no matching rule get promoted
+_STALE_DRAFT_MAX_AGE_DAYS = 30
+
+# Placeholder patterns for summary field
+_SUMMARY_PLACEHOLDERS = {"todo", "tbd", "fixme", "xxx", "...", "placeholder",
+                         "da completare", "da fare", ">"}
+
+
+def _extract_first_sentence(content):
+    """Extract first meaningful sentence from markdown body (after frontmatter)."""
+    # Strip frontmatter
+    stripped = re.sub(r"^---\s*\n.*?\n---\s*\n?", "", content, count=1, flags=re.DOTALL)
+    for line in stripped.split("\n"):
+        line = line.strip()
+        # Skip headings, empty lines, images, html, lists starting with -
+        if not line or line.startswith("#") or line.startswith("!") or line.startswith("<"):
+            continue
+        if line.startswith("-") or line.startswith("|") or line.startswith(">"):
+            continue
+        if line.startswith("```"):
+            break
+        # Clean markdown inline formatting
+        clean = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)  # [text](url) → text
+        clean = re.sub(r"[*_`]", "", clean).strip()
+        if len(clean) >= 10:
+            # Truncate to ~120 chars at word boundary
+            if len(clean) > 120:
+                clean = clean[:117].rsplit(" ", 1)[0] + "..."
+            return clean
+    return None
+
+
+def _title_to_summary(title):
+    """Generate a minimal summary from the title when no body content is available."""
+    clean = title.strip().strip("'\"")
+    if len(clean) >= 10:
+        return clean
+    return None
+
+
+def _set_fm_field(content, field, value):
+    """Set a frontmatter field value. Adds if missing, replaces if exists.
+
+    Handles YAML block scalars (> and |): when the existing value is a block
+    scalar indicator, the continuation lines (indented) are also removed before
+    inserting the new inline value.
+    """
+    # Match the frontmatter block
+    fm_match = re.match(r"^(---\s*\n)(.*?)(\n---)", content, re.DOTALL)
+    if not fm_match:
+        return content
+
+    fm_text = fm_match.group(2)
+
+    # Check if field already exists
+    field_pattern = re.compile(r"^(" + re.escape(field) + r"\s*:\s*)(.*)$", re.MULTILINE)
+    field_m = field_pattern.search(fm_text)
+
+    if field_m:
+        old_val = field_m.group(2).strip()
+        end_pos = field_m.end(2)
+
+        is_block_scalar = old_val in (">", "|", ">-", "|-")
+
+        # If old value is a YAML block scalar indicator (> or |), consume continuation lines
+        if is_block_scalar:
+            rest = fm_text[end_pos:]
+            lines = rest.split("\n")
+            consumed = 0
+            for ln in lines:
+                if ln == "":
+                    consumed += 1
+                elif ln.startswith("  ") or ln.startswith("\t"):
+                    consumed += 1
+                else:
+                    break
+            # Rejoin remaining lines (the next field onward)
+            remaining = "\n".join(lines[consumed:])
+            new_fm = fm_text[:field_m.start(2)] + value + "\n" + remaining
+        else:
+            new_fm = fm_text[:field_m.start(2)] + value + fm_text[end_pos:]
+    else:
+        # Append new field
+        new_fm = fm_text + f"\n{field}: {value}"
+
+    return content[:fm_match.start(2)] + new_fm + content[fm_match.end(2):]
+
+
+def giro7_frontmatter_quality(vault_path, inventory, dry_run=True):
+    """Fix frontmatter quality issues: stale drafts, placeholder summaries, empty fields.
+
+    Three sub-passes:
+    A. Stale drafts → promote to active or deprecate (rule-based)
+    B. Placeholder summaries → generate from body content or title
+    C. Empty required fields → fill from filename/content
+
+    Returns dict with fixes list and stats.
+    """
+    base = Path(vault_path)
+    fixes = []
+    stats = {"stale_draft_fixed": 0, "summary_fixed": 0, "empty_field_fixed": 0}
+
+    for f in inventory["md_files"]:
+        rel = str(f.relative_to(base)).replace("\\", "/")
+        content = _read_file(f)
+        if content is None:
+            continue
+
+        fm = parse_frontmatter(content)
+        if fm is None:
+            continue
+
+        modified = False
+        new_content = content
+
+        # --- A. Stale draft resolution ---
+        status_val = fm.get("status", "").strip().strip("'\"").lower()
+        updated_val = fm.get("updated", "").strip().strip("'\"")
+
+        if status_val == "draft" and updated_val:
+            try:
+                updated_date = date.fromisoformat(updated_val)
+                days_stale = (date.today() - updated_date).days
+            except (ValueError, TypeError):
+                days_stale = 0
+
+            if days_stale > _STALE_DRAFT_MAX_AGE_DAYS:
+                # Apply rules — first match wins
+                new_status = "active"  # default: promote
+                reason = f"draft stale {days_stale}d, promoted"
+                for rule in _STALE_DRAFT_RULES:
+                    if rel.startswith(rule["path_prefix"]):
+                        new_status = rule["new_status"]
+                        reason = rule["reason"]
+                        break
+                else:
+                    # No path rule matched — check extreme age
+                    if days_stale > 365:
+                        new_status = "deprecated"
+                        reason = f"fossil ({days_stale}d without update)"
+
+                new_content = _set_fm_field(new_content, "status", new_status)
+                fixes.append({
+                    "file": rel, "action": "stale_draft_resolve",
+                    "old_status": "draft", "new_status": new_status,
+                    "days_stale": days_stale, "reason": reason,
+                })
+                stats["stale_draft_fixed"] += 1
+                modified = True
+
+        # --- B. Placeholder summary fix ---
+        summary_val = fm.get("summary", "")
+        if summary_val:
+            summary_clean = summary_val.strip().strip("'\"")
+            if summary_clean.lower() in _SUMMARY_PLACEHOLDERS or len(summary_clean) < 10:
+                # Try to generate from body
+                generated = _extract_first_sentence(content)
+                if not generated:
+                    # Fallback: derive from title
+                    generated = _title_to_summary(fm.get("title", ""))
+                if generated:
+                    new_content = _set_fm_field(new_content, "summary", f"'{generated}'")
+                    fixes.append({
+                        "file": rel, "action": "summary_generate",
+                        "old_summary": summary_clean, "new_summary": generated,
+                    })
+                    stats["summary_fixed"] += 1
+                    modified = True
+
+        # --- C. Empty required fields ---
+        for field in ("id", "title", "summary"):
+            val = fm.get(field, None)
+            if val is not None:
+                clean = val.strip().strip("'\"").strip()
+                if not clean:
+                    if field == "id":
+                        generated = f.stem.lower().replace(" ", "-")
+                    elif field == "title":
+                        generated = f.stem.replace("-", " ").replace("_", " ").title()
+                    else:  # summary
+                        generated = _extract_first_sentence(content)
+                        if not generated:
+                            generated = _title_to_summary(fm.get("title", f.stem))
+                    if generated:
+                        quote = "'" if field == "summary" else ""
+                        new_content = _set_fm_field(new_content, field, f"{quote}{generated}{quote}")
+                        fixes.append({
+                            "file": rel, "action": f"fill_empty_{field}",
+                            "generated": generated,
+                        })
+                        stats["empty_field_fixed"] += 1
+                        modified = True
+
+        # --- D. Stamp updated date on modified files ---
+        if modified:
+            today_iso = date.today().isoformat()
+            new_content = _set_fm_field(new_content, "updated", f"'{today_iso}'")
+
+        if modified and not dry_run:
+            _write_file(f, new_content)
+
+    return {"fixes": fixes, "stats": stats}
+
+
 # --- Orchestrator: run all giri ---
 
 def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
@@ -570,7 +794,7 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
         Dict with results per giro and summary stats.
     """
     if giri is None:
-        giri = [0, 1, 2, 3, 4, 5, 6]
+        giri = [0, 1, 2, 3, 4, 5, 6, 7]
 
     results = {
         "action": "marginalia-fix",
@@ -636,6 +860,17 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
             "needs_review": g6["skipped"],
         }
         total_fixes += len(g6["fixes"])
+
+    if 7 in giri:
+        if not dry_run:
+            inventory = giro0_inventory(vault_path)
+        g7 = giro7_frontmatter_quality(vault_path, inventory, dry_run=dry_run)
+        results["giri"]["7_frontmatter_quality"] = {
+            "fixes": len(g7["fixes"]),
+            "stats": g7["stats"],
+            "details": g7["fixes"],
+        }
+        total_fixes += len(g7["fixes"])
 
     results["total_fixes"] = total_fixes
     results["status"] = "applied" if not dry_run else "dry_run"
