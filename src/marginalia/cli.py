@@ -223,7 +223,7 @@ def cmd_tags(args):
             # Proposed YAML
             yml = result.get("proposed_yaml_merges", "")
             if yml:
-                print(f"--- Proposed taxonomy merges (add to easyway-taxonomy.yml) ---", file=sys.stderr)
+                print(f"--- Proposed taxonomy merges (add to taxonomy.yml) ---", file=sys.stderr)
                 print(yml, file=sys.stderr)
 
             if out_path:
@@ -231,7 +231,7 @@ def cmd_tags(args):
 
             print(f"\nNext steps:", file=sys.stderr)
             print(f"  1. Review proposals above", file=sys.stderr)
-            print(f"  2. Add accepted merges to easyway-taxonomy.yml", file=sys.stderr)
+            print(f"  2. Add accepted merges to taxonomy.yml", file=sys.stderr)
             print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <yml> --apply", file=sys.stderr)
             print(f"  4. Run: marginalia fix <vault> --giri 6 --taxonomy <yml> --apply", file=sys.stderr)
         sys.exit(0)
@@ -293,7 +293,7 @@ def cmd_tags(args):
 
             print(f"\nNext steps:", file=sys.stderr)
             print(f"  1. Review inventory: tags with similar reasons = synonyms", file=sys.stderr)
-            print(f"  2. Add merges to easyway-taxonomy.yml", file=sys.stderr)
+            print(f"  2. Add merges to taxonomy.yml", file=sys.stderr)
             print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply", file=sys.stderr)
         sys.exit(0)
 
@@ -417,7 +417,7 @@ def cmd_tags(args):
         print(f"For LLM-powered analysis with reasoning: marginalia tags <vault> --analyze")
         print(f"\nNext steps:")
         print(f"  1. Review flat tags and synonym candidates above")
-        print(f"  2. Add merges to easyway-taxonomy.yml")
+        print(f"  2. Add merges to taxonomy.yml")
         print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply")
     sys.exit(0)
 

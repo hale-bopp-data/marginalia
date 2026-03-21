@@ -4,9 +4,9 @@ Replaces Agent Levi (PowerShell) session:closeout action.
 Zero external dependencies for data collection. Optional LLM for narrative via brain.py.
 
 Usage:
-    marginalia closeout 103 --vault C:/old/easyway/wiki
-    marginalia closeout 103 --vault C:/old/easyway/wiki --write
-    marginalia closeout 103 --vault C:/old/easyway/wiki --write --ai
+    marginalia closeout 103 --vault ~/my-vault
+    marginalia closeout 103 --vault ~/my-vault --write
+    marginalia closeout 103 --vault ~/my-vault --write --ai
 """
 
 import json
@@ -18,23 +18,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-# Polyrepo layout — relative to base dir
-REPOS = {
-    "wiki": "wiki",
-    "agents": "agents",
-    "infra": "infra",
-    "portal": "portal",
-    "ado": "ado",
-    "n8n": "n8n",
-    "marginalia": "marginalia",
-}
-
-# Target files for closeout (relative to base dir)
-TARGETS = {
+# Default target files for closeout (relative to base dir).
+# Override via marginalia.yaml closeout_targets section.
+DEFAULT_TARGETS = {
     "platform_memory": "wiki/agents/platform-operational-memory.md",
     "chronicles_dir": "wiki/chronicles",
     "chronicles_index": "wiki/chronicles/_index.md",
 }
+
+
+def _discover_repos(base_dir):
+    """Auto-discover git repositories under base_dir (one level deep)."""
+    base = Path(base_dir).resolve()
+    repos = {}
+    if not base.is_dir():
+        return repos
+    for child in sorted(base.iterdir()):
+        if child.is_dir() and (child / ".git").exists():
+            repos[child.name] = child.name
+    return repos
 
 
 def _git_log(repo_path, n=10):
@@ -91,16 +93,19 @@ def _git_status_short(repo_path):
 
 
 def collect_session_data(base_dir, session_number, session_title=None):
-    """Collect git data from all polyrepo repos for a session closeout.
+    """Collect git data from all git repos found under base_dir.
 
-    Returns a dict with all data needed to generate closeout files.
+    Auto-discovers repos (one level deep). Returns a dict with all data
+    needed to generate closeout files.
     """
     base = Path(base_dir).resolve()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    discovered_repos = _discover_repos(base)
+
     repos_data = {}
     all_commits = []
-    for name, rel_path in REPOS.items():
+    for name, rel_path in discovered_repos.items():
         repo_path = base / rel_path
         if not repo_path.is_dir():
             continue
@@ -173,15 +178,15 @@ def generate_closeout_template(data):
 
     # Platform operational memory entry
     pom_entry = f"""## Session {sn} — {title}
-**Data**: {date}
-**Cosa**: {title}
-**Perche**: TODO — spiegare la motivazione
-**Come**:
+**Date**: {date}
+**What**: {title}
+**Why**: TODO — explain the motivation
+**How**:
 {commit_block}
 **PRs**: {pr_list}
 **Q&A**:
-- Q: TODO — domanda su una decisione di design
-  A: TODO — risposta con rationale
+- Q: TODO — question about a design decision
+  A: TODO — answer with rationale
 """
 
     # Chronicle
@@ -197,11 +202,9 @@ tags: [chronicle, session/S{sn}]
 
 # S{sn} — {title}
 
-TODO — Narrativa della sessione in stile letterario italiano.
-Raccontare cosa e successo, perche, quali sfide, quali soluzioni.
-Usare metafore e riferimenti alla filosofia del progetto.
+TODO — Write a session narrative: what happened, why, challenges, solutions.
 
-## Commits principali
+## Key commits
 
 {commit_block}
 
@@ -246,22 +249,21 @@ def generate_closeout_with_ai(data, model=None):
     commit_block = "\n".join(f"- {c}" for c in commits[:20])
     pr_list = ", ".join(f"#{p}" for p in prs) if prs else "(none)"
 
-    prompt = f"""Sei l'agente Levi, guardiano della documentazione EasyWay.
-Genera il closeout per la Session {sn}.
+    prompt = f"""Generate a session closeout summary for Session {sn}.
 
-Commits recenti:
+Recent commits:
 {commit_block}
 
 PRs: {pr_list}
 
-Genera un JSON con questi campi:
-- "what": titolo conciso (max 100 char)
-- "why": spiegazione motivazione (multilinea con \\n, ogni riga inizia con "- ")
-- "how": array di step concreti (min 2) con riferimenti a file/PR
-- "chronicle_narrative": narrativa letteraria in italiano (min 200 char), con metafore e riferimenti alla filosofia del progetto
-- "session_history_line": riga singola con **bold** per i deliverable chiave
+Return a JSON object with these fields:
+- "what": concise title (max 100 chars)
+- "why": motivation (multiline with \\n, each line starts with "- ")
+- "how": array of concrete steps (min 2) referencing files/PRs
+- "chronicle_narrative": narrative summary of the session (min 200 chars)
+- "session_history_line": single line with **bold** for key deliverables
 
-Rispondi SOLO con il JSON, nessun altro testo."""
+Return ONLY the JSON, no other text."""
 
     response = brain._llm_call(prompt, model=model)
     if not response:
@@ -288,7 +290,7 @@ def write_closeout_files(base_dir, template, sessions_history_path=None):
     files_written = []
 
     # 1. Append to platform-operational-memory.md
-    pom_path = base / TARGETS["platform_memory"]
+    pom_path = base / DEFAULT_TARGETS["platform_memory"]
     if pom_path.exists():
         content = pom_path.read_text(encoding="utf-8")
         # Append before the last line (or at end)
@@ -297,14 +299,14 @@ def write_closeout_files(base_dir, template, sessions_history_path=None):
         files_written.append(str(pom_path))
 
     # 2. Create chronicle file
-    chron_dir = base / TARGETS["chronicles_dir"]
+    chron_dir = base / DEFAULT_TARGETS["chronicles_dir"]
     if chron_dir.is_dir():
         chron_path = chron_dir / template["chronicle_filename"]
         chron_path.write_text(template["chronicle_content"], encoding="utf-8")
         files_written.append(str(chron_path))
 
     # 3. Append to chronicles/_index.md
-    index_path = base / TARGETS["chronicles_index"]
+    index_path = base / DEFAULT_TARGETS["chronicles_index"]
     if index_path.exists():
         content = index_path.read_text(encoding="utf-8")
         content = content.rstrip() + "\n" + template["chronicles_index_entry"] + "\n"
@@ -346,21 +348,19 @@ def run_closeout(base_dir, session_number, session_title=None, write=False,
         if ai_data.get("chronicle_narrative"):
             # Replace TODO in chronicle with AI narrative
             template["chronicle_content"] = template["chronicle_content"].replace(
-                "TODO — Narrativa della sessione in stile letterario italiano.\n"
-                "Raccontare cosa e successo, perche, quali sfide, quali soluzioni.\n"
-                "Usare metafore e riferimenti alla filosofia del progetto.",
+                "TODO — Write a session narrative: what happened, why, challenges, solutions.",
                 ai_data["chronicle_narrative"],
             )
         if ai_data.get("why"):
             template["platform_memory_entry"] = template["platform_memory_entry"].replace(
-                "TODO — spiegare la motivazione", ai_data["why"]
+                "TODO — explain the motivation", ai_data["why"]
             )
         if ai_data.get("how") and isinstance(ai_data["how"], list):
             how_block = "\n".join(f"  - {step}" for step in ai_data["how"])
             # Replace commit block with AI-generated steps
             template["platform_memory_entry"] = re.sub(
-                r"\*\*Come\*\*:\n(  - .*\n)*",
-                f"**Come**:\n{how_block}\n",
+                r"\*\*How\*\*:\n(  - .*\n)*",
+                f"**How**:\n{how_block}\n",
                 template["platform_memory_entry"],
             )
         if ai_data.get("session_history_line"):

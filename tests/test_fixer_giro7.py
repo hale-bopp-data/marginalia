@@ -161,14 +161,14 @@ class TestStaleDraftFix:
         assert result["fixes"][0]["new_status"] == "active"
         assert "status: active" in contents["indices/DOMAIN/API.md"]
 
-    def test_legacy_webapp_deprecated(self):
+    def test_legacy_content_deprecated(self):
         old = (date.today() - timedelta(days=60)).isoformat()
         files = {
-            "easyway-webapp/tables.md": f"---\ntitle: Tables\ntags: []\nstatus: draft\nupdated: '{old}'\n---\n\n# T\n"
+            "legacy/tables.md": f"---\ntitle: Tables\ntags: []\nstatus: draft\nupdated: '{old}'\n---\n\n# T\n"
         }
         result, contents = _fix_and_read(files)
         assert result["fixes"][0]["new_status"] == "deprecated"
-        assert "status: deprecated" in contents["easyway-webapp/tables.md"]
+        assert "status: deprecated" in contents["legacy/tables.md"]
 
     def test_orchestrations_deprecated(self):
         old = (date.today() - timedelta(days=60)).isoformat()

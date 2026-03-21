@@ -9,6 +9,14 @@ to provide intelligent suggestions:
 - Quality review with improvement suggestions
 
 Zero lock-in: works with any provider that speaks OpenAI API format.
+
+Configuration (env vars):
+    MARGINALIA_API_KEY   — API key (or use provider-specific vars below)
+    MARGINALIA_API_URL   — Base URL (default: https://openrouter.ai/api/v1)
+    MARGINALIA_MODEL     — Model name (default: deepseek/deepseek-chat)
+    OPENROUTER_API_KEY   — OpenRouter API key (fallback)
+    DEEPSEEK_API_KEY     — DeepSeek API key (fallback, auto-sets base URL)
+    OPENAI_API_KEY       — OpenAI API key (fallback)
 """
 
 import json
@@ -21,73 +29,14 @@ from pathlib import Path
 from .scanner import find_md_files, parse_frontmatter, extract_tags
 
 
-def _find_connector():
-    """Find openrouter.sh connector path (EasyWay ecosystem integration)."""
-    # Walk up from marginalia source to find the connectors directory
-    candidates = [
-        os.environ.get("MARGINALIA_CONNECTOR", ""),
-        os.path.expanduser("~/easyway-agents/scripts/connections/openrouter.sh"),
-    ]
-    # Relative to this file: ../../agents/scripts/connections/openrouter.sh
-    src_dir = Path(__file__).resolve().parent
-    for parent in [src_dir] + list(src_dir.parents)[:5]:
-        candidates.append(str(parent / "agents" / "scripts" / "connections" / "openrouter.sh"))
-        candidates.append(str(parent / "easyway" / "agents" / "scripts" / "connections" / "openrouter.sh"))
-    for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    return None
-
-
 def _llm_call(prompt, system_prompt="You are a helpful assistant for organizing Markdown notes.",
               api_key=None, base_url=None, model=None, max_tokens=500):
-    """Call an LLM. Strategy order:
+    """Call an LLM via any OpenAI-compatible API.
 
-    1. EasyWay connector (openrouter.sh) — uses SSH gateway, secrets on server (G16)
-    2. Direct API call — requires local API key
+    Requires an API key set via env var or passed directly.
     """
-    import subprocess
-
     model = model or os.environ.get("MARGINALIA_MODEL", "deepseek/deepseek-chat")
 
-    # Strategy 1: EasyWay connector — call OpenRouter API via SSH gateway
-    # Uses server.sh exec to run curl on the server where secrets live.
-    # This avoids the quoting hell of passing long prompts as bash arguments.
-    connector_dir = _find_connector()
-    if connector_dir:
-        server_sh = os.path.join(os.path.dirname(connector_dir), "server.sh")
-        if os.path.isfile(server_sh):
-            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            # Write prompt to temp file, send via stdin to avoid quoting
-            import tempfile
-            try:
-                body = json.dumps({
-                    "model": model,
-                    "messages": [{"role": "user", "content": full_prompt}],
-                    "max_tokens": max_tokens,
-                    "temperature": 0.3,
-                }, ensure_ascii=True)
-                # SSH exec: source secrets, curl OpenRouter
-                cmd = (
-                    'source /opt/easyway/.env.secrets 2>/dev/null; '
-                    'curl -sf -X POST https://openrouter.ai/api/v1/chat/completions '
-                    '-H "Authorization: Bearer $OPENROUTER_API_KEY" '
-                    '-H "Content-Type: application/json" '
-                    "-d '" + body.replace("'", "'\\''") + "'"
-                )
-                result = subprocess.run(
-                    ["bash", server_sh, "exec", cmd],
-                    capture_output=True, text=True, timeout=60, encoding="utf-8"
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    data = json.loads(result.stdout)
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    if content:
-                        return content
-            except Exception:
-                pass  # fall through to direct API
-
-    # Strategy 2: Direct API call (local key required)
     api_key = api_key or os.environ.get("MARGINALIA_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
     if not base_url:
         if os.environ.get("MARGINALIA_API_URL"):
@@ -319,9 +268,7 @@ Be concise and actionable."""
 
 
 def is_available():
-    """Check if LLM brain is configured (connector or API key)."""
-    if _find_connector():
-        return True
+    """Check if LLM brain is configured (any supported API key set)."""
     return bool(
         os.environ.get("MARGINALIA_API_KEY") or
         os.environ.get("DEEPSEEK_API_KEY") or

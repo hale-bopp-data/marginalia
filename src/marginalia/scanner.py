@@ -750,12 +750,12 @@ def build_tag_dictionary(vault_path, file_index=None):
                     break
             continue
 
-        # --- Pattern-merge: repo names (easyway-*) → domain/ ---
-        if tag.startswith("easyway-"):
-            suffix = tag[len("easyway-"):]
-            # Map to domain if suffix matches a known domain
-            from .tags import load_taxonomy
-            if suffix in {v for vals in ns_canonical.values() for v in vals}:
+        # --- Pattern-merge: prefix-* tags → namespace/ (configurable) ---
+        # Detect tags that look like "prefix-value" and try to map them
+        if "-" in tag and "/" not in tag:
+            parts = tag.split("-", 1)
+            suffix = parts[1] if len(parts) == 2 else None
+            if suffix and suffix in {v for vals in ns_canonical.values() for v in vals}:
                 for ns_name, vals in ns_canonical.items():
                     if suffix in vals:
                         pattern_merges.append({
