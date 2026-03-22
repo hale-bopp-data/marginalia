@@ -203,6 +203,129 @@ class TestCleanFileNoIssues:
             "# Content\n\nSome real content here.\n"
         )
         issues = _scan_content(content)
-        giro7b_types = {"summary_todo", "stale_draft", "empty_required_fields"}
+        giro7b_types = {"summary_todo", "stale_draft", "empty_required_fields",
+                        "invalid_status", "invalid_rag_categories", "malformed_answers"}
         giro7b_issues = [i for i in issues if i["type"] in giro7b_types]
         assert len(giro7b_issues) == 0
+
+
+# --- invalid_status (S167) ---
+
+class TestInvalidStatus:
+    def test_valid_status_active(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nstatus: active\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 0
+
+    def test_valid_status_draft(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nstatus: draft\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 0
+
+    def test_valid_status_deprecated(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nstatus: deprecated\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 0
+
+    def test_valid_status_planned(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nstatus: planned\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 0
+
+    def test_invalid_status_typo(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nstatus: actve\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 1
+        assert "actve" in issues[0]["description"]
+
+    def test_invalid_status_unknown(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nstatus: published\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 1
+
+    def test_no_status_no_issue(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_status")
+        assert len(issues) == 0
+
+
+# --- invalid_rag_categories (S167) ---
+
+class TestInvalidRagCategories:
+    def test_valid_categories(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nrag_categories:\n  - infra\n  - security\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_rag_categories")
+        assert len(issues) == 0
+
+    def test_invalid_category(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nrag_categories:\n  - infra\n  - bananas\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_rag_categories")
+        assert len(issues) == 1
+        assert "bananas" in issues[0]["description"]
+
+    def test_empty_categories(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nrag_categories: []\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_rag_categories")
+        assert len(issues) == 1
+        assert "empty" in issues[0]["description"]
+
+    def test_all_15_valid(self):
+        cats = "\\n".join(f"  - {c}" for c in [
+            "infra", "git", "governance", "architecture", "security",
+            "operations", "history", "agents", "data", "context",
+            "mcp", "external", "emergency", "onboarding", "edge_case",
+        ])
+        content = f"---\\ntitle: Test\\ntags: [domain/x]\\nrag_categories:\\n{cats}\\n---\\n\\n# Hello\\n"
+        # Build properly
+        lines = [
+            "---", "title: Test", "tags: [domain/x]", "rag_categories:",
+            "  - infra", "  - git", "  - governance", "  - architecture",
+            "  - security", "  - operations", "  - history", "  - agents",
+            "  - data", "  - context", "  - mcp", "  - external",
+            "  - emergency", "  - onboarding", "  - edge_case",
+            "---", "", "# Hello", "",
+        ]
+        content = "\n".join(lines)
+        issues = _issues_of_type(_scan_content(content), "invalid_rag_categories")
+        assert len(issues) == 0
+
+    def test_no_rag_categories_no_issue(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "invalid_rag_categories")
+        assert len(issues) == 0
+
+
+# --- malformed_answers (S167) ---
+
+class TestMalformedAnswers:
+    def test_valid_answers(self):
+        lines = [
+            "---", "title: Test", "tags: [domain/x]", "answers:",
+            "  - \"Cos'è X?\"", "  - \"Come funziona Y?\"",
+            "---", "", "# Hello", "",
+        ]
+        content = "\n".join(lines)
+        issues = _issues_of_type(_scan_content(content), "malformed_answers")
+        assert len(issues) == 0
+
+    def test_answer_not_question(self):
+        lines = [
+            "---", "title: Test", "tags: [domain/x]", "answers:",
+            "  - \"Cos'è X?\"", "  - \"This is a statement\"",
+            "---", "", "# Hello", "",
+        ]
+        content = "\n".join(lines)
+        issues = _issues_of_type(_scan_content(content), "malformed_answers")
+        assert len(issues) == 1
+        assert "question" in issues[0]["description"].lower()
+
+    def test_empty_answers(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\nanswers: []\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "malformed_answers")
+        assert len(issues) == 1
+        assert "empty" in issues[0]["description"]
+
+    def test_no_answers_no_issue(self):
+        content = "---\ntitle: Test\ntags: [domain/x]\n---\n\n# Hello\n"
+        issues = _issues_of_type(_scan_content(content), "malformed_answers")
+        assert len(issues) == 0

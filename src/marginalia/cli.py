@@ -14,6 +14,13 @@ from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
 from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
+from .operator import (
+    build_quickstart_blueprint,
+    get_catalog,
+    materialize_quickstart,
+    render_catalog_text,
+    render_quickstart_text,
+)
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1072,6 +1079,42 @@ def cmd_validate(args):
     sys.exit(0 if report["valid"] else 1)
 
 
+def cmd_catalog(args):
+    catalog = {
+        "action": "marginalia-catalog",
+        "version": __version__,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "capabilities": get_catalog(),
+    }
+    if args.json:
+        print(json.dumps(catalog, ensure_ascii=False, indent=2), flush=True)
+    else:
+        print(render_catalog_text())
+    sys.exit(0)
+
+
+def cmd_quickstart(args):
+    vault = _ensure_vault(args.vault)
+    required = args.require.split(",") if args.require else ["title", "tags"]
+    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth)
+
+    if args.write:
+        output_dir = args.output or (vault / "out" / "marginalia-quickstart")
+        blueprint["materialized"] = materialize_quickstart(blueprint, output_dir)
+
+    if args.json:
+        print(json.dumps(blueprint, ensure_ascii=False, indent=2), flush=True)
+    else:
+        print(render_quickstart_text(blueprint))
+        if blueprint.get("materialized"):
+            print("\nArtifacts:")
+            print(f"  JSON: {blueprint['materialized']['json']}")
+            print(f"  MD:   {blueprint['materialized']['markdown']}")
+        elif not args.write:
+            print("\nRun with --write to materialize operator-blueprint.json and operator-blueprint.md")
+    sys.exit(0)
+
+
 def cmd_ai(args):
     from . import brain
     vault = _ensure_vault(args.vault)
@@ -1177,6 +1220,17 @@ def main():
     p = sub.add_parser("graph", help="Output relationship graph as JSON")
     p.add_argument("vault", nargs="?", default=".")
 
+    p = sub.add_parser("catalog", help="Show the operator-facing capability catalog")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("quickstart", help="Inspect a vault and generate the next operator flow")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("--require", help="Required frontmatter fields (comma-separated)")
+    p.add_argument("--max-depth", type=int, default=5, help="Max directory depth for Obsidian checks")
+    p.add_argument("--write", action="store_true", help="Materialize operator blueprint artifacts")
+    p.add_argument("--output", help="Output directory for materialized quickstart artifacts")
+    p.add_argument("--json", action="store_true")
+
     p = sub.add_parser("link", help="Suggest related links via TF-IDF cosine similarity")
     p.add_argument("vaults", nargs="*", default=["."], metavar="VAULT",
                    help="Vault path(s) (default: ., or vaults from marginalia.yaml)")
@@ -1251,7 +1305,8 @@ def main():
 
     cmds = {"scan": cmd_scan, "tags": cmd_tags, "untag": cmd_untag, "check": cmd_check, "fix": cmd_fix,
             "fix-tags": cmd_fix_tags, "discover": cmd_discover, "index": cmd_index,
-            "css": cmd_css, "graph": cmd_graph, "link": cmd_link, "eval": cmd_eval,
+            "css": cmd_css, "graph": cmd_graph, "catalog": cmd_catalog, "quickstart": cmd_quickstart,
+            "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
             "validate": cmd_validate}
     cmds[args.command](args)
