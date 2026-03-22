@@ -562,7 +562,7 @@ _STALE_DRAFT_RULES = [
     # Auto-generated index pages are functional, not drafts
     {"path_prefix": "indices/",      "new_status": "active",     "reason": "auto-generated MOC index"},
     # Legacy webapp docs — schema/code from old portal
-    {"path_prefix": "easyway-webapp/", "new_status": "deprecated", "reason": "legacy portal schema"},
+    {"path_prefix": "legacy/",         "new_status": "deprecated", "reason": "legacy content"},
     # Legacy orchestrations superseded by n8n/marginalia
     {"path_prefix": "orchestrations/", "new_status": "deprecated", "reason": "legacy orchestration"},
     # Old concepts/architecture — fossils

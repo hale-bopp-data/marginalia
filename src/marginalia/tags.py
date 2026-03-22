@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-# Default taxonomy (EasyWay-derived, good starting point for any vault)
+# Default taxonomy (good starting point for any Markdown vault)
 DEFAULT_NAMESPACES = {
     "domain": {"notes", "research", "project", "course", "thesis", "lecture", "reading"},
     "artifact": {"documentation", "guide", "template", "readme", "checklist", "faq", "report",

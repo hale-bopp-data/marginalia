@@ -8,8 +8,8 @@ Wraps marginalia closeout (steps 1,2,5) and adds:
 - Manual step reminders (steps 3,4)
 
 Usage:
-    marginalia session-close 141 --base C:/old/easyway --title "Agent Readiness Score"
-    marginalia session-close 141 --base C:/old/easyway --write --ai
+    marginalia session-close 141 --base ~/my-project --title "Session title"
+    marginalia session-close 141 --base ~/my-project --write --ai
 """
 
 import json
@@ -20,14 +20,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .closeout import run_closeout, collect_session_data, REPOS
+from .closeout import run_closeout, collect_session_data, _discover_repos
 
 
-# Paths relative to base_dir
+# Default paths relative to base_dir (skipped gracefully if not found).
 GEDI_CASEBOOK = "agents/agents/agent_gedi/GEDI_CASEBOOK.md"
 SESSIONS_HISTORY = None  # Will be resolved from MEMORY path
 BACKLOG = "wiki/planning/initiatives-backlog.md"
-ADO_REMOTE = "ado/scripts/ado-remote.sh"
 
 
 def _check_gedi_casebook(base_dir, session_number):
@@ -51,7 +50,7 @@ def _check_gedi_casebook(base_dir, session_number):
 def _check_dirty_repos(base_dir):
     """Check which repos have uncommitted changes."""
     dirty = {}
-    for name, rel_path in REPOS.items():
+    for name, rel_path in _discover_repos(base_dir).items():
         repo_path = Path(base_dir) / rel_path
         if not repo_path.is_dir() or not (repo_path / ".git").exists():
             continue
@@ -75,7 +74,7 @@ def _check_dirty_repos(base_dir):
 def _check_unpushed_repos(base_dir):
     """Check which repos have unpushed commits."""
     unpushed = {}
-    for name, rel_path in REPOS.items():
+    for name, rel_path in _discover_repos(base_dir).items():
         repo_path = Path(base_dir) / rel_path
         if not repo_path.is_dir() or not (repo_path / ".git").exists():
             continue
@@ -99,7 +98,7 @@ def _check_unpushed_repos(base_dir):
 def _extract_wi_from_commits(base_dir, session_number):
     """Extract WI numbers from recent commits across all repos."""
     wi_numbers = set()
-    for name, rel_path in REPOS.items():
+    for name, rel_path in _discover_repos(base_dir).items():
         repo_path = Path(base_dir) / rel_path
         if not repo_path.is_dir() or not (repo_path / ".git").exists():
             continue
@@ -139,11 +138,11 @@ def _generate_handoff(result, gedi_status, dirty_repos, unpushed_repos, wi_numbe
 
     lines = []
     lines.append(f"# Handoff — S{sn} ({date})")
-    lines.append(f"**Tema**: {title}")
+    lines.append(f"**Topic**: {title}")
     lines.append("")
 
     # What was done
-    lines.append("## Completato")
+    lines.append("## Completed")
     if result.get("files_written"):
         for f in result["files_written"]:
             lines.append(f"- {Path(f).name}")
@@ -160,7 +159,7 @@ def _generate_handoff(result, gedi_status, dirty_repos, unpushed_repos, wi_numbe
     if gedi_status.get("found"):
         lines.append(f"**GEDI Cases**: {', '.join(f'#{c}' for c in gedi_status.get('cases', []))}")
     else:
-        lines.append("**GEDI Cases**: nessuno documentato")
+        lines.append("**GEDI Cases**: none documented")
     lines.append("")
 
     # Pending actions
@@ -173,7 +172,7 @@ def _generate_handoff(result, gedi_status, dirty_repos, unpushed_repos, wi_numbe
         pending.append(f"Push pending in: {repos_list}")
 
     if pending:
-        lines.append("## Azioni pendenti")
+        lines.append("## Pending actions")
         for p in pending:
             lines.append(f"- {p}")
         lines.append("")

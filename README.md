@@ -1,16 +1,39 @@
 # marginalia
 
+[![CI](https://github.com/hale-bopp-data/marginalia/actions/workflows/ci.yml/badge.svg)](https://github.com/hale-bopp-data/marginalia/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/marginalia)](https://pypi.org/project/marginalia/)
+[![Python](https://img.shields.io/pypi/pyversions/marginalia)](https://pypi.org/project/marginalia/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
 **Markdown vault quality scanner for Obsidian, academics, and documentation teams.**
 
 Zero dependencies. Pure Python. Works on any Markdown vault.
 
 ## Install
 
+### Prerequisites
+
+You need **Python 3.9 or newer**. Check if you have it:
+
+```bash
+python --version
+```
+
+If you don't have Python, install it from [python.org/downloads](https://www.python.org/downloads/) — check **"Add Python to PATH"** during installation.
+
+### Install marginalia
+
 ```bash
 pip install marginalia
 ```
 
-Or from source:
+That's it. Verify it works:
+
+```bash
+marginalia scan --help
+```
+
+### Install from source (for contributors)
 
 ```bash
 git clone https://github.com/hale-bopp-data/marginalia
@@ -158,7 +181,7 @@ marginalia ai connect ~/my-vault/
 marginalia ai frontmatter ~/my-vault/
 ```
 
-Requires `OPENROUTER_API_KEY` (or `OPENAI_API_KEY` / `OLLAMA_HOST`). Uses the AI provider configured in `marginalia.yaml`.
+Requires an API key for any OpenAI-compatible provider (see [LLM Configuration](#llm-configuration) below).
 
 ### `eval` — Before/after RAG quality measurement
 
@@ -247,9 +270,67 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 
 ---
 
+## LLM Configuration
+
+AI-powered commands (`ai`, `tags --analyze`, `closeout --ai`) require an API key. Set one of these environment variables:
+
+| Variable | Provider | Base URL (auto) |
+|----------|----------|-----------------|
+| `MARGINALIA_API_KEY` | Any OpenAI-compatible | Set `MARGINALIA_API_URL` too |
+| `OPENROUTER_API_KEY` | OpenRouter (default) | `https://openrouter.ai/api/v1` |
+| `DEEPSEEK_API_KEY` | DeepSeek | `https://api.deepseek.com` |
+| `OPENAI_API_KEY` | OpenAI | `https://api.openai.com/v1` |
+
+Optional:
+- `MARGINALIA_MODEL` — model name (default: `deepseek/deepseek-chat`)
+- `MARGINALIA_API_URL` — custom base URL (e.g., `http://localhost:11434/v1` for Ollama)
+
+All AI features are optional — marginalia works fully without any API key.
+
+---
+
+## Testing
+
+marginalia ships with 128 tests covering all core modules.
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run a specific test module
+python -m pytest tests/test_scanner.py -v
+python -m pytest tests/test_linker.py -v
+python -m pytest tests/test_fixer_giro7.py -v
+```
+
+### Test coverage
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| `test_scanner.py` | Frontmatter parsing, tag extraction, broken link detection, empty sections, wikilinks, Giro 7 quality checks (summary_todo, stale_draft, empty_required_fields) |
+| `test_linker.py` | TF-IDF vectorization, cosine similarity, relative link computation, tag overlap scoring |
+| `test_fixer_giro7.py` | 4-pass fixer pipeline, stale draft rules (path-based auto-resolution), frontmatter normalization |
+| `test_eval.py` | RAG quality snapshots, before/after comparison, precision/recall metrics |
+| `test_closeout.py` | Git data collection, session template generation |
+| `test_validators.py` | YAML validation, taxonomy checks, retry logic |
+
+All tests are pure unit tests — no network, no filesystem side effects, no external services required.
+
+---
+
 ## Zero dependencies
 
 marginalia uses only the Python standard library. No PyYAML, no external packages. Runs anywhere Python 3.9+ is installed.
+
+## Origin story
+
+marginalia was born inside [EasyWay](https://github.com/hale-bopp-data), a data governance platform with 50+ AI agents and a growing wiki of 500+ Markdown files. As the wiki scaled, quality eroded: broken links, orphan pages, inconsistent tags, missing frontmatter. Manual reviews couldn't keep up.
+
+We built marginalia to automate what humans forget: **find every broken link, detect every missing tag, suggest every connection**. Within days of deploying it, EasyWay's wiki went from 40% frontmatter coverage to 98%, broken links dropped to zero, and the tag taxonomy became consistent across all documentation.
+
+The tool turned out to be useful far beyond our project — any Obsidian vault, research wiki, or documentation repo has the same problems. So we extracted it, removed all internal dependencies, and released it as a standalone product.
+
+**What it did for us, it can do for you.**
 
 ## Part of HALE-BOPP
 
