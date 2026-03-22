@@ -44,13 +44,40 @@ pip install -e .
 ## Quick start
 
 ```bash
+marginalia catalog
+marginalia quickstart ~/my-vault/ --write
 marginalia scan ~/my-vault/
 marginalia scan ~/my-vault/ --json
 ```
 
+If you're new to the tool, start with `catalog` to see the capability map, then run `quickstart` to generate an operator blueprint (`operator-blueprint.json` + `.md`) with the next recommended flow for your vault.
+
 ---
 
 ## Commands
+
+### `catalog` — Operator capability map
+
+```bash
+marginalia catalog
+marginalia catalog --json
+```
+
+Shows the tool catalog grouped by operator goal: baseline, catalog, normalization, materialization, guardrails, and measurement.
+
+### `quickstart` — Guided operator flow + blueprint materialization
+
+```bash
+marginalia quickstart ~/my-vault/
+marginalia quickstart ~/my-vault/ --write
+marginalia quickstart ~/my-vault/ --write --output out/ops
+```
+
+Reads the current vault state, identifies the next best slice, and suggests the operational flow. With `--write`, it materializes:
+- `operator-blueprint.json`
+- `operator-blueprint.md`
+
+This is the fastest way to answer: "what should I run next on this vault?"
 
 ### `scan` — Quality scan
 

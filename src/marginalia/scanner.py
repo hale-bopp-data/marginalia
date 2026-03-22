@@ -237,7 +237,61 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None):
                         "auto_fixable": False,
                     })
 
-    # 1c. Domain tag coverage — files without domain/ tags are invisible to RAG routing
+    # 1c. RAG-critical fields — status, rag_categories, answers (S167)
+    if fm is not None and not is_template and not is_archive:
+        _VALID_STATUSES = {"active", "draft", "deprecated", "planned", "archived", "superseded"}
+        status_raw = fm.get("status", "").strip().strip("'\"").lower()
+        if status_raw and status_raw not in _VALID_STATUSES:
+            issues.append({
+                "file": rel_path, "type": "invalid_status", "line": 1,
+                "description": f"status '{status_raw}' not in {sorted(_VALID_STATUSES)}",
+                "auto_fixable": False,
+            })
+
+        _VALID_RAG_CATS = {
+            "infra", "git", "governance", "architecture", "security",
+            "operations", "history", "agents", "data", "context",
+            "mcp", "external", "emergency", "onboarding", "edge_case",
+        }
+        rag_cats_raw = fm.get("rag_categories", "")
+        if rag_cats_raw:
+            match_rc = re.search(r"\[([^\]]*)\]", rag_cats_raw)
+            cats = [c.strip().strip("'\"") for c in match_rc.group(1).split(",") if c.strip()] if match_rc else []
+            if not cats:
+                issues.append({
+                    "file": rel_path, "type": "invalid_rag_categories", "line": 1,
+                    "description": "rag_categories is present but empty",
+                    "auto_fixable": False,
+                })
+            else:
+                bad = [c for c in cats if c not in _VALID_RAG_CATS]
+                if bad:
+                    issues.append({
+                        "file": rel_path, "type": "invalid_rag_categories", "line": 1,
+                        "description": f"rag_categories contains unknown values: {bad}. Valid: {sorted(_VALID_RAG_CATS)}",
+                        "auto_fixable": False,
+                    })
+
+        answers_raw = fm.get("answers", "")
+        if answers_raw:
+            match_ans = re.search(r"\[([^\]]*)\]", answers_raw)
+            answers = [a.strip().strip("'\"") for a in match_ans.group(1).split(",") if a.strip()] if match_ans else []
+            if not answers:
+                issues.append({
+                    "file": rel_path, "type": "malformed_answers", "line": 1,
+                    "description": "answers is present but empty — remove or add questions",
+                    "auto_fixable": False,
+                })
+            else:
+                bad_ans = [a for a in answers if not a.endswith("?")]
+                if bad_ans:
+                    issues.append({
+                        "file": rel_path, "type": "malformed_answers", "line": 1,
+                        "description": f"answers should be questions (end with '?'): {bad_ans[:3]}",
+                        "auto_fixable": False,
+                    })
+
+    # 1d. Domain tag coverage — files without domain/ tags are invisible to RAG routing
     if fm is not None:
         tags = extract_tags(fm)
         has_domain = any(t.startswith("domain/") for t in tags)
