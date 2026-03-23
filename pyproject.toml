@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marginalia"
-version = "1.1.0"
+version = "1.1.1"
 description = "Markdown vault quality scanner for Obsidian, academics, and documentation teams"
 readme = "README.md"
 license = "MIT"
