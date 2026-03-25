@@ -1,0 +1,74 @@
+# Marginalia — CI Pipeline
+# Markdown vault quality scanner: lint, test, GitHub mirror
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  name: Default
+
+variables:
+  - group: EasyWay-Secrets
+
+stages:
+  - stage: BuildAndTest
+    displayName: 'Build, Lint & Test'
+    jobs:
+      - job: PythonTest
+        displayName: 'Python Lint & Test'
+        steps:
+          - checkout: self
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.12'
+            displayName: 'Use Python 3.12'
+
+          - script: |
+              set -e
+              python -m pip install --upgrade pip
+              pip install -e ".[dev]" 2>/dev/null || pip install -e .
+              pip install pytest ruff
+            displayName: 'Install dependencies'
+
+          - script: |
+              set -e
+              ruff check src/ tests/ || echo "##[warning]Ruff lint issues found"
+            displayName: 'Lint (Ruff)'
+            continueOnError: true
+
+          - script: |
+              set -e
+              python -m pytest tests/ -v --tb=short
+            displayName: 'Test (pytest)'
+
+  - stage: GitHubMirror
+    displayName: 'GitHub Mirror (publish main → github)'
+    dependsOn: BuildAndTest
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: MirrorToGitHub
+        displayName: 'Push main → github.com/hale-bopp-data/marginalia'
+        pool:
+          name: Default
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            persistCredentials: false
+          - script: |
+              set -e
+              git config user.email "ew-svc-azuredevops-agent@easyway.local"
+              git config user.name "EasyWay CI"
+              source /opt/easyway/.env.secrets
+              REMOTE="https://oauth2:${GITHUB_PAT}@github.com/hale-bopp-data/marginalia.git"
+              git push "$REMOTE" HEAD:main --force
+              echo "##[section]GitHub mirror: OK — $(git rev-parse --short HEAD)"
+            displayName: 'git push → GitHub'
+            continueOnError: true
