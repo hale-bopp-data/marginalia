@@ -57,6 +57,7 @@ tags: []
 | G15 | SSH: SEMPRE heredoc o script server-side. MAI quote annidate |
 | G16 | OGNI modifica server → aggiornare `Runbooks/server-full-setup.md` |
 | G17 | Git Cross-Repo: MAI git push/commit senza `cd <repo> &&` o `git -C` |
+| G18 | Git Push: SEMPRE via `ewctl-git.sh push <repo>` — MAI `git push` diretto (5 guard antifragili) |
 
 ## Security
 - Hardcoded secrets = **immediato revert**
@@ -67,9 +68,10 @@ tags: []
 ## Documentazione
 - Ogni capability → guida in `easyway-wiki/guides/` con Cosa/Come/Perché/Q&A
 - **GEDI**: `easyway-agents/agents/agent_gedi/manifest.json` (19 principi)
-- **Governance Git**: `easyway-wiki/guides/polyrepo-git-workflow.md` (regole G1-G17)
+- **Governance Git**: `easyway-wiki/guides/polyrepo-git-workflow.md` (regole G1-G18)
+- **Git Ops**: `ewctl-git.sh` — single entry point: `push`, `acquire`, `release`, `status`, `selftest`
 - **Operativo**: vedi `AGENTS.md` nello stesso repo per comandi, struttura, workflow ADO
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/cursorrules-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-22T09:00:10Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-27T09:00:16Z
