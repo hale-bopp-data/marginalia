@@ -26,14 +26,10 @@ stages:
         steps:
           - checkout: self
 
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '3.12'
-            displayName: 'Use Python 3.12'
-
           - script: |
               set -e
-              python -m pip install --upgrade pip
+              python3 --version
+              python3 -m pip install --upgrade pip
               pip install -e ".[dev]" 2>/dev/null || pip install -e .
               pip install pytest ruff
             displayName: 'Install dependencies'
@@ -46,7 +42,7 @@ stages:
 
           - script: |
               set -e
-              python -m pytest tests/ -v --tb=short
+              python3 -m pytest tests/ -v --tb=short
             displayName: 'Test (pytest)'
 
   - stage: GitHubMirror
