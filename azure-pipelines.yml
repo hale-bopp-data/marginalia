@@ -29,20 +29,24 @@ stages:
           - script: |
               set -e
               python3 --version
-              python3 -m pip install --upgrade pip
+              python3 -m venv .venv
+              source .venv/bin/activate
+              pip install --upgrade pip
               pip install -e ".[dev]" 2>/dev/null || pip install -e .
               pip install pytest ruff
             displayName: 'Install dependencies'
 
           - script: |
               set -e
+              source .venv/bin/activate
               ruff check src/ tests/ || echo "##[warning]Ruff lint issues found"
             displayName: 'Lint (Ruff)'
             continueOnError: true
 
           - script: |
               set -e
-              python3 -m pytest tests/ -v --tb=short
+              source .venv/bin/activate
+              python -m pytest tests/ -v --tb=short
             displayName: 'Test (pytest)'
 
   - stage: GitHubMirror
