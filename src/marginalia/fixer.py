@@ -780,7 +780,7 @@ def giro7_frontmatter_quality(vault_path, inventory, dry_run=True):
 # --- Orchestrator: run all giri ---
 
 def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
-            giri=None):
+            giri=None, only_files=None):
     """Run the multi-pass fix pipeline.
 
     Args:
@@ -806,6 +806,23 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
 
     # Giro 0 always runs (inventory)
     inventory = giro0_inventory(vault_path)
+
+    # Delta mode: filter md_files to only process specified files,
+    # but keep full file_index and fm_map for link resolution lookups.
+    if only_files:
+        base = Path(vault_path)
+        only_set = set()
+        for f in only_files:
+            fp = f.strip()
+            if fp:
+                only_set.add(fp.replace("\\", "/"))
+        filtered = [f for f in inventory["md_files"]
+                    if str(f.relative_to(base)).replace("\\", "/") in only_set]
+        inventory["md_files"] = filtered
+        inventory["total_files"] = len(filtered)
+        results["delta_mode"] = True
+        results["delta_files"] = len(filtered)
+
     results["giri"]["0_inventory"] = {
         "total_files": inventory["total_files"],
         "with_frontmatter": inventory["with_frontmatter"],

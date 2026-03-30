@@ -634,8 +634,10 @@ def cmd_fix(args):
     from .fixer import fix_all
     vault = _ensure_vault(args.vault)
     giri = [int(g) for g in args.giri.split(",")] if args.giri else None
+    only_files = args.files.split(",") if args.files else None
     result = fix_all(vault, dry_run=not args.apply, taxonomy_path=args.taxonomy,
-                     required_fields=args.require.split(",") if args.require else None, giri=giri)
+                     required_fields=args.require.split(",") if args.require else None,
+                     giri=giri, only_files=only_files)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     else:
@@ -1195,6 +1197,7 @@ def main():
     p.add_argument("--taxonomy", help="Path to taxonomy YAML")
     p.add_argument("--require", help="Required frontmatter fields")
     p.add_argument("--giri", help="Which giri to run (e.g. 1,2,3)")
+    p.add_argument("--files", help="Comma-separated list of files to process (delta mode). Only these files will be fixed.")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("fix-tags", help="Migrate flat tags to namespaced")
