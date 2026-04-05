@@ -676,6 +676,39 @@ def cmd_fix_tags(args):
     sys.exit(0)
 
 
+def cmd_graph_export(args):
+    """Export consolidated wiki knowledge graph for RAG expansion (PBI #971)."""
+    from .graph_export import export_wiki_graph
+    vault = _ensure_vault(args.vault)
+    print(f"marginalia {__version__} -- Graph Export (wiki-graph.json)", file=sys.stderr)
+    print(f"Vault: {vault}", file=sys.stderr)
+
+    result = export_wiki_graph(
+        vault,
+        min_shared_tags=args.min_tags,
+        top_k_similar=args.top_k,
+        min_similarity=args.min_similarity,
+    )
+
+    meta = result["meta"]
+    print(f"  Link graph: {meta['link_graph_edges']} edges", file=sys.stderr)
+    print(f"  Backlinks: {meta['backlink_edges']} edges", file=sys.stderr)
+    print(f"  Tag affinity: {meta['tag_affinity_pairs']} pairs", file=sys.stderr)
+    print(f"  Cluster bridges: {meta['cluster_bridges']} bridges", file=sys.stderr)
+    print(f"  Similarity: {meta['similarity_entries']} entries", file=sys.stderr)
+
+    output = json.dumps(result, ensure_ascii=False, indent=2)
+
+    if args.json:
+        print(output, flush=True)
+    else:
+        out_path = Path(args.out)
+        out_path.write_text(output, encoding="utf-8")
+        print(f"  Written to: {out_path}", file=sys.stderr)
+
+    sys.exit(0)
+
+
 def cmd_discover(args):
     from .discovery import discover_all
     vault = _ensure_vault(args.vault)
@@ -1301,6 +1334,14 @@ def main():
     p.add_argument("--sample", type=int, help="Sample size for review")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("graph-export", help="Export wiki knowledge graph for RAG expansion (link graph + tag affinity + cluster bridges + TF-IDF similarity)")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("-o", "--out", default="wiki-graph.json", help="Output file path (default: wiki-graph.json)")
+    p.add_argument("--min-tags", type=int, default=2, help="Min shared tags for affinity (default: 2)")
+    p.add_argument("--top-k", type=int, default=5, help="Top-K similar docs per file (default: 5)")
+    p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
+    p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1311,7 +1352,7 @@ def main():
             "css": cmd_css, "graph": cmd_graph, "catalog": cmd_catalog, "quickstart": cmd_quickstart,
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
-            "validate": cmd_validate}
+            "validate": cmd_validate, "graph-export": cmd_graph_export}
     cmds[args.command](args)
 
 
