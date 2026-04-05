@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/marginalia)](https://pypi.org/project/marginalia/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**Markdown vault quality scanner for Obsidian, academics, and documentation teams.**
+**Markdown vault quality toolkit: scanning, connection discovery, and knowledge graph export for Obsidian, academics, and documentation teams.**
 
 Zero dependencies. Pure Python. Works on any Markdown vault.
 
@@ -172,10 +172,18 @@ Detects: `.obsidian/` tracked in git, missing `.gitignore`, hierarchy too deep/f
 ### `discover` — Hidden connections
 
 ```bash
+marginalia discover ~/my-vault/
 marginalia discover ~/my-vault/ --json
+marginalia discover ~/my-vault/ --min-tags 3 --max-results 100
 ```
 
-Finds clusters of notes with overlapping tags that don't link to each other yet.
+Analyzes your vault to find connections you didn't know you had:
+
+- **Tag affinity** — pairs of files that share multiple tags but aren't linked. These are "hidden connections": notes about the same topic the author never explicitly connected.
+- **Orphan rescue** — orphan files that *should* be linked from somewhere, with a suggested parent and confidence score.
+- **Cluster bridges** — hub documents that span multiple tag domains, useful for connecting separate clusters.
+
+Human-readable output shows top 10 per category with details; `--json` returns the full dataset for programmatic use.
 
 ### `index` — Generate MOC + indexes
 
@@ -192,6 +200,33 @@ marginalia graph ~/my-vault/ > graph.json
 ```
 
 Returns: tag index, link graph, topology (hubs, authorities, orphans), tag clusters.
+
+### `graph-export` — Knowledge graph for RAG expansion
+
+```bash
+marginalia graph-export ~/my-vault/                        # writes wiki-graph.json
+marginalia graph-export ~/my-vault/ -o custom-graph.json   # custom output path
+marginalia graph-export ~/my-vault/ --json                 # print to stdout
+marginalia graph-export ~/my-vault/ --min-tags 3 --top-k 10 --min-similarity 0.4
+```
+
+Exports a consolidated knowledge graph that combines **four relationship layers** into a single `wiki-graph.json`:
+
+| Layer | Source | What it captures |
+|-------|--------|------------------|
+| **Link graph** | Scanner | Explicit markdown links and `[[wikilinks]]` between documents |
+| **Tag affinity** | Discovery | Implicit relationships via shared tags (files about the same topic that aren't linked) |
+| **Cluster bridges** | Discovery | Hub documents that span multiple tag domains |
+| **TF-IDF similarity** | Linker | Semantic neighbors by content similarity |
+
+The output includes backlinks (reverse index), per-file tag index, and metadata with edge counts.
+
+**Options:**
+- `--min-tags N` — minimum shared tags for affinity pairs (default: 2)
+- `--top-k N` — top-K similar documents per file (default: 5)
+- `--min-similarity F` — minimum TF-IDF cosine similarity score (default: 0.35)
+
+**Use case:** Feed `wiki-graph.json` to any RAG pipeline that supports graph expansion. After initial retrieval, walk the graph to add related documents to the LLM context — turning isolated search results into context-aware answers.
 
 ### `css` — Tag colour snippets for Obsidian
 
@@ -294,6 +329,7 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 - **Researchers** — Map knowledge topology across hundreds of notes
 - **Documentation teams** — Enforce quality gates on Markdown wikis
 - **Obsidian users** — Find broken links, orphan notes, hierarchy issues, get automatic link suggestions
+- **AI/RAG builders** — Export a multi-layer knowledge graph (`graph-export`) to power context-aware retrieval pipelines
 
 ---
 
@@ -368,7 +404,7 @@ marginalia is part of the [HALE-BOPP](https://github.com/hale-bopp-data) open-so
 - [hale-bopp-db](https://github.com/hale-bopp-data/hale-bopp-db) — Schema governance for PostgreSQL
 - [hale-bopp-etl](https://github.com/hale-bopp-data/hale-bopp-etl) — Config-driven data orchestration
 - [hale-bopp-argos](https://github.com/hale-bopp-data/hale-bopp-argos) — Policy gating and quality checks
-- **marginalia** (this repo) — Markdown vault quality scanner
+- **marginalia** (this repo) — Markdown vault quality toolkit and knowledge graph builder
 
 ## License
 
