@@ -14,7 +14,7 @@ tags: []
 |---|---|
 | Cosa | Plugin TypeScript per Obsidian — session management, closeout automation |
 | Linguaggio | TypeScript, Python (CLI) |
-| Branch | `feat→main` (NO develop) — PR target: `main` |
+| Branch | `feat→main` (NO develop) — PR target: `develop` |
 
 
 ## Comandi rapidi
@@ -57,4 +57,4 @@ pyproject.toml       # Python package metadata
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-03-28T00:00:11Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-04-15T00:00:19Z
