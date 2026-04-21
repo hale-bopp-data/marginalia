@@ -7,14 +7,14 @@ tags: []
 
 > Plugin Obsidian per gestione sessioni AI: apertura, chiusura, context tracking.
 > Guardrails e regole: vedi `.cursorrules` nello stesso repo.
-> Workspace map: vedi `factory.yml` nella root workspace (mappa completa repos, stack, deploy).
+> Workspace map: vedi `easyway/infra/factory-vcs.json` (SSoT repo map, branch strategy, deploy metadata).
 
 ## Identità
 | Campo | Valore |
 |---|---|
 | Cosa | Plugin TypeScript per Obsidian — session management, closeout automation |
 | Linguaggio | TypeScript, Python (CLI) |
-| Branch | `feat→main` (NO develop) — PR target: `develop` |
+| Branch | `feature/* -> develop -> main` (target da `factory-vcs.json`) |
 
 
 ## Comandi rapidi
@@ -57,4 +57,4 @@ pyproject.toml       # Python package metadata
 
 ---
 > Context Sync Engine | Master: `easyway-wiki/templates/agents-master.md`
-> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-04-21T15:00:12Z
+> Override: `easyway-wiki/templates/repo-overrides.yml` | Sync: 2026-04-21T21:00:14Z
