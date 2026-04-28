@@ -70,6 +70,12 @@ def cmd_scan(args):
             vaults = _ensure_vaults(cfg_vaults)
 
     required = args.require.split(",") if args.require else ["title", "tags"]
+    scanner_config = {
+        "required_tags": cfg.get("required_tags", []),
+        "valid_rag_categories": cfg.get("valid_rag_categories", []),
+        "validate_answers": cfg.get("validate_answers", False),
+        "valid_statuses": cfg.get("valid_statuses", []),
+    }
     all_issues = []
 
     # For single vault, use existing graph; for multi, scan each separately
@@ -87,7 +93,7 @@ def cmd_scan(args):
                 break
             except ValueError:
                 continue
-        all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required))
+        all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required, scanner_config=scanner_config))
 
     graph = build_graph(primary_vault, file_index)
     by_type = {}
@@ -1131,7 +1137,14 @@ def cmd_catalog(args):
 def cmd_quickstart(args):
     vault = _ensure_vault(args.vault)
     required = args.require.split(",") if args.require else ["title", "tags"]
-    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth)
+    cfg = _load_cfg(args, vault_hint=vault)
+    scanner_config = {
+        "required_tags": cfg.get("required_tags", []),
+        "valid_rag_categories": cfg.get("valid_rag_categories", []),
+        "validate_answers": cfg.get("validate_answers", False),
+        "valid_statuses": cfg.get("valid_statuses", []),
+    }
+    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth, scanner_config=scanner_config)
 
     if args.write:
         output_dir = args.output or (vault / "out" / "marginalia-quickstart")
@@ -1189,6 +1202,63 @@ def cmd_ai(args):
             fm = brain.generate_frontmatter(fp)
             print(fm if fm else "Could not generate frontmatter.")
     sys.exit(0)
+
+
+def cmd_layer(args):
+    from . import layer
+    if args.action == "classify":
+        vault = _ensure_vault(args.vault)
+        result = layer.classify_vault(vault, args.taxonomy)
+        if args.out:
+            Path(args.out).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Layer classification written to {args.out}")
+        elif args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            _print_layer_classify(result)
+    elif args.action == "resolve":
+        vault = _ensure_vault(args.vault)
+        result = layer.resolve_query(args.query, vault, args.taxonomy, top_k=args.top_k)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            _print_layer_resolve(result)
+    else:
+        print("Usage: marginalia layer {classify, resolve} ...", file=sys.stderr)
+    sys.exit(0)
+
+
+def _print_layer_classify(result):
+    stats = result["stats"]
+    classification = result["classification"]
+    print(f"marginalia layer classify — {result['vault']}")
+    print(f"Files: {stats['total_files']}  Classified: {stats['classified']}  Unclassified: {stats['unclassified']}")
+    print(f"Coverage: {stats['coverage']}%\n")
+    for name in sorted(classification.keys()):
+        info = classification[name]
+        print(f"  {name} ({info['label']}): {info['count']} files")
+        if info.get("description"):
+            print(f"    {info['description']}")
+    if result["unclassified"]:
+        print(f"\n  Unclassified ({len(result['unclassified'])}):")
+        for item in result["unclassified"][:5]:
+            print(f"    {item['path']} ({item['reason']})")
+        if len(result["unclassified"]) > 5:
+            print(f"    ... and {len(result['unclassified']) - 5} more")
+    print(f"\nMethods: {stats['by_method']}")
+
+
+def _print_layer_resolve(result):
+    print(f"Query: {result['query']}")
+    for layer_name in result["suggested_order"]:
+        files = result["results_by_layer"].get(layer_name, [])
+        if not files:
+            continue
+        label = layer_name if layer_name != "_unclassified" else "?? (unclassified)"
+        print(f"\n  {label}:")
+        for f in files[:5]:
+            title = f.get("title", "") or f["path"]
+            print(f"    {title}  (score={f['score']})")
 
 
 def main():
@@ -1301,7 +1371,7 @@ def main():
     pc.add_argument("--after", required=True, help="Path to after snapshot JSON")
     pc.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("closeout", help="Session closeout: collect git data, generate reports, write files")
+    p = sub.add_parser("closeout", help="[EasyWay] Session closeout: collect git data, generate reports, write files")
     p.add_argument("session_number", type=int, help="Session number (e.g. 103)")
     p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
     p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
@@ -1311,7 +1381,7 @@ def main():
     p.add_argument("--sessions-history", help="Path to sessions-history.md")
     p.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("session-close", help="Full 9-point session closeout orchestrator (wraps closeout + checks)")
+    p = sub.add_parser("session-close", help="[EasyWay] Full 9-point session closeout orchestrator (wraps closeout + checks)")
     p.add_argument("session_number", type=int, help="Session number (e.g. 141)")
     p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
     p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
@@ -1342,6 +1412,22 @@ def main():
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
 
+    p = sub.add_parser("layer", help="Classify vault files into layers via taxonomy (classify, resolve)")
+    layer_sub = p.add_subparsers(dest="action")
+
+    plc = layer_sub.add_parser("classify", help="Classify all files into layers defined by taxonomy YAML")
+    plc.add_argument("vault", nargs="?", default=".")
+    plc.add_argument("--taxonomy", "-t", required=True, help="Path to taxonomy YAML defining layers and rules")
+    plc.add_argument("--out", "-o", help="Output JSON path (default: stdout)")
+    plc.add_argument("--json", action="store_true")
+
+    plr = layer_sub.add_parser("resolve", help="Resolve a query to relevant files grouped by layer")
+    plr.add_argument("query", help="Natural-language query to resolve")
+    plr.add_argument("vault", nargs="?", default=".")
+    plr.add_argument("--taxonomy", "-t", required=True, help="Path to taxonomy YAML defining layers and rules")
+    plr.add_argument("--top-k", type=int, default=5, help="Max results per layer (default: 5)")
+    plr.add_argument("--json", action="store_true")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1352,7 +1438,8 @@ def main():
             "css": cmd_css, "graph": cmd_graph, "catalog": cmd_catalog, "quickstart": cmd_quickstart,
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
-            "validate": cmd_validate, "graph-export": cmd_graph_export}
+            "validate": cmd_validate, "graph-export": cmd_graph_export,
+            "layer": cmd_layer}
     cmds[args.command](args)
 
 
