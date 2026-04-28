@@ -1200,6 +1200,30 @@ def cmd_validate(args):
     sys.exit(0 if report["valid"] else 1)
 
 
+def cmd_validate_handoff(args):
+    from .handoff_validator import validate_handoff
+    report = validate_handoff(args.file)
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
+    else:
+        status = "VALID" if report["valid"] else "INVALID"
+        print(f"marginalia validate-handoff — {status}")
+        print(f"  File: {args.file}")
+        print(f"  Sections: {len(report['sections_found'])}/{report['sections_expected']}")
+        if report["errors"]:
+            print(f"\n  Errors:")
+            for e in report["errors"]:
+                print(f"    [{e['section']}] {e['reason']}")
+        if report["warnings"]:
+            print(f"\n  Warnings:")
+            for w in report["warnings"]:
+                print(f"    [{w['section']}] {w['detail']}")
+        if report["valid"]:
+            print(f"\n  All 9 sections present and valid.")
+    sys.exit(0 if report["valid"] else 1)
+
+
 def cmd_catalog(args):
     catalog = {
         "action": "marginalia-catalog",
@@ -1481,6 +1505,10 @@ def main():
     p.add_argument("--type", choices=["closeout", "scan"], default="closeout", help="Validation type (default: closeout)")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("validate-handoff", help="Validate a handoff file against v2 9-section declarative format")
+    p.add_argument("file", help="Path to handoff .md file")
+    p.add_argument("--json", action="store_true")
+
     p = sub.add_parser("ai", help="AI-powered analysis (OpenRouter/OpenAI/Ollama)")
     p.add_argument("action", choices=["review", "tag", "connect", "frontmatter"])
     p.add_argument("vault", nargs="?", default=".")
@@ -1524,6 +1552,7 @@ def main():
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
             "validate": cmd_validate, "graph-export": cmd_graph_export,
+            "validate-handoff": cmd_validate_handoff,
             "layer": cmd_layer}
     cmds[args.command](args)
 
