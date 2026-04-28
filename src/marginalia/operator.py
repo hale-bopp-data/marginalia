@@ -160,16 +160,25 @@ def _recommendations(issue_counts, graph, tag_dict, obsidian_issues, discoveries
     return recs[:5]
 
 
-def build_quickstart_blueprint(vault_path, required_fields=None, max_depth=5):
+def build_quickstart_blueprint(vault_path, required_fields=None, max_depth=5, scanner_config=None):
     """Inspect a vault and return a guided operator blueprint."""
+    from .config import DEFAULTS
     vault = Path(vault_path).resolve()
     file_index = build_file_index(vault)
     md_files = find_md_files(vault)
     required_fields = required_fields or ["title", "tags"]
+    if scanner_config is None:
+        scanner_config = {}
+    scfg = {
+        "required_tags": scanner_config.get("required_tags", DEFAULTS.get("required_tags", [])),
+        "valid_rag_categories": scanner_config.get("valid_rag_categories", DEFAULTS.get("valid_rag_categories", [])),
+        "validate_answers": scanner_config.get("validate_answers", DEFAULTS.get("validate_answers", True)),
+        "valid_statuses": scanner_config.get("valid_statuses", DEFAULTS.get("valid_statuses", [])),
+    }
 
     issues = []
     for md_file in md_files:
-        issues.extend(scan_file(md_file, vault, file_index=file_index, required_fields=required_fields))
+        issues.extend(scan_file(md_file, vault, file_index=file_index, required_fields=required_fields, scanner_config=scfg))
 
     issue_counter = Counter(issue["type"] for issue in issues)
     issue_counts = [
