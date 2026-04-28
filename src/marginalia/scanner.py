@@ -436,6 +436,52 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None, scann
     return issues
 
 
+def check_layer_budget(rel_path, content, scfg):
+    """Check file against layer budget rules (Giro 6 — Matrioska).
+
+    Consumes classification from scfg['_layer_map'] (rel_path -> layer_name)
+    and budget rules from scfg['layer_budgets'] (layer_name -> {max_lines, min_pointer_density}).
+
+    Returns list of issues.
+    """
+    layer_map = scfg.get("_layer_map", {})
+    budgets = scfg.get("layer_budgets", {})
+    if not layer_map or not budgets:
+        return []
+
+    layer_name = layer_map.get(rel_path)
+    if not layer_name:
+        return []
+
+    budget = budgets.get(layer_name, {})
+    if not budget:
+        return []
+
+    issues = []
+    line_count = len(content.split("\n"))
+
+    max_lines = budget.get("max_lines")
+    if isinstance(max_lines, (int, float)) and max_lines > 0 and line_count > max_lines:
+        issues.append({
+            "file": rel_path, "type": "layer_budget_exceeded", "line": 1,
+            "description": f"{layer_name}: {line_count} lines exceeds budget of {int(max_lines)}",
+            "auto_fixable": False,
+        })
+
+    min_pointer_density = budget.get("min_pointer_density")
+    if isinstance(min_pointer_density, (int, float)) and min_pointer_density > 0:
+        links = sum(1 for ln in content.split("\n") if re.search(r"\[\[.+?\]\]|\[.+?\]\(.+?\)", ln))
+        density = links / max(line_count, 1)
+        if density < min_pointer_density:
+            issues.append({
+                "file": rel_path, "type": "layer_budget_exceeded", "line": 1,
+                "description": f"{layer_name}: pointer density {density:.2f} below minimum {min_pointer_density}",
+                "auto_fixable": False,
+            })
+
+    return issues
+
+
 REVIEW_TAG = "quality/review-needed"
 
 
