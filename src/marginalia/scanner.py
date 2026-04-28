@@ -482,6 +482,72 @@ def check_layer_budget(rel_path, content, scfg):
     return issues
 
 
+def check_nonna_standard(content, rel_path):
+    """Check a guide against the Nonna Standard (6 elementi strutturali).
+
+    Returns (score 0-6, list of checks {name, passed, detail}).
+    """
+    checks = []
+
+    # 1. Table "Cosa c'e e dove" — any markdown table with at least 2 columns and 2+ data rows
+    table_rows = re.findall(r"^\|.+\|.+\|", content, re.MULTILINE)
+    has_table = len(table_rows) >= 3  # header + separator + at least 1 data row
+    checks.append({"name": "prereq_table", "label": "Tabella prerequisiti",
+                   "passed": has_table,
+                   "detail": f"{len(table_rows)} table rows found" if has_table else "No markdown table found"})
+
+    # 2. Method-of-approach — ordered list (1. 2. 3.) with at least 3 items
+    ordered_items = re.findall(r"^\s*\d+\.\s+\S", content, re.MULTILINE)
+    has_method = len(ordered_items) >= 3
+    checks.append({"name": "method_approach", "label": "Metodo di approccio",
+                   "passed": has_method,
+                   "detail": f"{len(ordered_items)} ordered list items" if has_method else "< 3 ordered list items"})
+
+    # 3. At least 3 copy-paste recipes — code blocks (``` ... ```)
+    code_blocks = re.findall(r"```[\s\S]*?```", content)
+    has_recipes = len(code_blocks) >= 3
+    checks.append({"name": "copy_paste_recipes", "label": "3+ ricette copia-incolla",
+                   "passed": has_recipes,
+                   "detail": f"{len(code_blocks)} code blocks" if has_recipes else f"Only {len(code_blocks)} code blocks"})
+
+    # 4. Troubleshooting table — heading with "troubleshoot" or "error" + table
+    has_trouble_heading = bool(re.search(r"^#{1,4}\s+.*(?:roubleshoot|error|problemi|risoluzione)", content, re.MULTILINE | re.IGNORECASE))
+    # Find if any table appears after a troubleshooting heading
+    trouble_section = False
+    if has_trouble_heading:
+        sections = re.split(r"^#{1,4}\s+", content, flags=re.MULTILINE)
+        for sec in sections:
+            if re.match(r".*(?:roubleshoot|error|problemi|risoluzione)", sec, re.IGNORECASE):
+                if len(re.findall(r"^\|.+\|.+\|", sec, re.MULTILINE)) >= 3:
+                    trouble_section = True
+                    break
+    checks.append({"name": "troubleshooting", "label": "Tabella troubleshooting",
+                   "passed": trouble_section,
+                   "detail": "Heading + table found" if trouble_section else "No troubleshooting section with table"})
+
+    # 5. "Da directory esterne" section — heading referencing external/other directories
+    has_external = bool(re.search(r"^#{1,4}\s+.*(?:directory esterne|da qualsiasi|da altre directory|da directory|funziona da)",
+                                  content, re.MULTILINE | re.IGNORECASE))
+    checks.append({"name": "external_dirs", "label": "Sezione directory esterne",
+                   "passed": has_external,
+                   "detail": "Section found" if has_external else "No external-directory section"})
+
+    # 6. Links to related guides — "Riferimenti" or "Vedi anche" section with links
+    has_refs = False
+    ref_sections = re.findall(r"^#{1,4}\s+(?:Riferimenti|Vedi anche|Guide correlate|Related).*?\n(.*?)(?=^#{1,4}\s+|\Z)",
+                              content, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    for sec_content in ref_sections:
+        if re.search(r"\[.+\]\(.+\)|\[\[.+\]\]", sec_content):
+            has_refs = True
+            break
+    checks.append({"name": "related_links", "label": "Link a guide correlate",
+                   "passed": has_refs,
+                   "detail": "Reference section with links" if has_refs else "No reference section with links"})
+
+    score = sum(1 for c in checks if c["passed"])
+    return score, checks
+
+
 REVIEW_TAG = "quality/review-needed"
 
 

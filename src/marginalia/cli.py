@@ -10,7 +10,8 @@ from . import __version__
 from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
                       tag_issues, untag_issues, REVIEW_TAG, build_tag_dictionary,
                       build_tag_inventory, build_synonym_map_from_inventory,
-                      rationalize_tags, parse_frontmatter, check_layer_budget)
+                      rationalize_tags, parse_frontmatter, check_layer_budget,
+                      check_nonna_standard)
 from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
@@ -95,6 +96,7 @@ def cmd_scan(args):
         print("ERROR: --strict-layer requires --taxonomy <file>", file=sys.stderr)
         sys.exit(2)
     all_issues = []
+    nonna_scores = {}  # rel_path -> (score, checks)
 
     # For single vault, use existing graph; for multi, scan each separately
     primary_vault = vaults[0]
@@ -112,13 +114,17 @@ def cmd_scan(args):
             except ValueError:
                 continue
         all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required, scanner_config=scanner_config))
-        # Giro 6: layer budget check (Matrioska)
-        if scanner_config.get("_layer_map"):
+        # Giro 6: layer budget check (Matrioska) + Nonna Standard
+        if scanner_config.get("_layer_map") or args.standard == "nonna":
             content = f.read_text(encoding="utf-8", errors="replace")
             rel = str(f.relative_to(primary_vault)).replace("\\", "/")
-            budget_issues = check_layer_budget(rel, content, scanner_config)
-            all_issues.extend(budget_issues)
-            strict_layer_violations += len(budget_issues)
+            if scanner_config.get("_layer_map"):
+                budget_issues = check_layer_budget(rel, content, scanner_config)
+                all_issues.extend(budget_issues)
+                strict_layer_violations += len(budget_issues)
+            if args.standard == "nonna" and ("guides/" in rel or "Runbooks/" in rel or "standards/" in rel):
+                score, checks = check_nonna_standard(content, rel)
+                nonna_scores[rel] = (score, checks)
 
     graph = build_graph(primary_vault, file_index)
     by_type = {}
@@ -207,6 +213,30 @@ def cmd_scan(args):
         elif not args.json:
             print(f"\n--- STRICT QUALITY PASSED ---")
             print(f"  No placeholder summaries, stale drafts, or empty fields.")
+
+    # Nonna Standard: report scores per guide
+    if args.standard == "nonna" and nonna_scores:
+        if not args.json:
+            print(f"\n--- Nonna Standard ---")
+            below_threshold = []
+            for path, (score, checks) in sorted(nonna_scores.items()):
+                bar = "#" * score + "-" * (6 - score)
+                print(f"  [{bar}] {score}/6 {path}")
+                threshold = args.strict_nonna if args.strict_nonna is not None else 4
+                if score < threshold:
+                    below_threshold.append((path, score, checks))
+            if below_threshold:
+                print(f"\n  Below threshold ({threshold}/6):")
+                for path, score, checks in below_threshold[:10]:
+                    failed = [c["label"] for c in checks if not c["passed"]]
+                    print(f"    {path} ({score}/6): missing {', '.join(failed[:3])}")
+        nonna_below = sum(1 for s, _ in nonna_scores.values() if s < (args.strict_nonna or 4))
+        if args.strict_nonna is not None and nonna_below > 0:
+            if not args.json:
+                print(f"\n--- STRICT NONNA FAILED ---")
+                print(f"  {nonna_below} guide(s) below threshold ({args.strict_nonna}/6)")
+                print(f"  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
+            sys.exit(1)
 
     # Obsidian tip (always, if issues found and not JSON)
     if all_issues and not args.json:
@@ -1327,6 +1357,8 @@ def main():
     p.add_argument("--strict", type=int, metavar="N", help="Exit code 1 if missing_domain_tag > N (CI guardrail, e.g. --strict 0)")
     p.add_argument("--strict-layer", action="store_true", help="Enforce layer budget rules (requires --taxonomy)")
     p.add_argument("--strict-quality", action="store_true", help="Exit 1 if any placeholder summary, stale draft, or empty required field")
+    p.add_argument("--standard", choices=["nonna"], help="Check guide compliance against a standard (e.g. nonna)")
+    p.add_argument("--strict-nonna", type=int, metavar="N", help="Exit 1 if Nonna Standard score < N (default: 4)")
     p.add_argument("--taxonomy", help="Taxonomy YAML path for layer classification + budget rules")
 
     p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
