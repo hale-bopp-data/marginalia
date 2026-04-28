@@ -195,6 +195,19 @@ def cmd_scan(args):
             print(f"\n--- STRICT LAYER PASSED ---")
             print(f"  All files within layer budgets.")
 
+    # --strict-quality: CI guardrail — fail if placeholder summaries, stale drafts, or empty fields
+    if args.strict_quality:
+        quality_issues = by_type.get("summary_todo", 0) + by_type.get("stale_draft", 0) + by_type.get("empty_required_fields", 0)
+        if quality_issues > 0:
+            if not args.json:
+                print(f"\n--- STRICT QUALITY FAILED ---")
+                print(f"  Placeholder/stale/empty issues: {quality_issues}")
+                print(f"  Fix: marginalia fix <vault> --giri 7 --apply")
+            sys.exit(1)
+        elif not args.json:
+            print(f"\n--- STRICT QUALITY PASSED ---")
+            print(f"  No placeholder summaries, stale drafts, or empty fields.")
+
     # Obsidian tip (always, if issues found and not JSON)
     if all_issues and not args.json:
         print(f"\n--- Find in Obsidian ---")
@@ -1313,6 +1326,7 @@ def main():
     p.add_argument("--tag", action="store_true", help="Add quality/review-needed tag to files with issues (for Obsidian filtering)")
     p.add_argument("--strict", type=int, metavar="N", help="Exit code 1 if missing_domain_tag > N (CI guardrail, e.g. --strict 0)")
     p.add_argument("--strict-layer", action="store_true", help="Enforce layer budget rules (requires --taxonomy)")
+    p.add_argument("--strict-quality", action="store_true", help="Exit 1 if any placeholder summary, stale draft, or empty required field")
     p.add_argument("--taxonomy", help="Taxonomy YAML path for layer classification + budget rules")
 
     p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
