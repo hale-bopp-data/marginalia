@@ -10,7 +10,7 @@ from . import __version__
 from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
                       tag_issues, untag_issues, REVIEW_TAG, build_tag_dictionary,
                       build_tag_inventory, build_synonym_map_from_inventory,
-                      rationalize_tags, parse_frontmatter)
+                      rationalize_tags, parse_frontmatter, check_layer_budget)
 from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
@@ -76,6 +76,24 @@ def cmd_scan(args):
         "validate_answers": cfg.get("validate_answers", False),
         "valid_statuses": cfg.get("valid_statuses", []),
     }
+
+    # Layer budget enforcement (Giro 6 — Matrioska)
+    strict_layer_violations = 0
+    if args.strict_layer and args.taxonomy:
+        from . import layer as _layer
+        taxonomy = _layer.load_taxonomy(args.taxonomy)
+        budgets = {name: spec.get("budget", {}) for name, spec in taxonomy.items() if spec.get("budget")}
+        if budgets:
+            result = _layer.classify_vault(vaults[0], args.taxonomy)
+            layer_map = {}
+            for lname, linfo in result["classification"].items():
+                for f in linfo.get("files", []):
+                    layer_map[f["path"]] = lname
+            scanner_config["layer_budgets"] = budgets
+            scanner_config["_layer_map"] = layer_map
+    elif args.strict_layer and not args.taxonomy:
+        print("ERROR: --strict-layer requires --taxonomy <file>", file=sys.stderr)
+        sys.exit(2)
     all_issues = []
 
     # For single vault, use existing graph; for multi, scan each separately
@@ -94,6 +112,13 @@ def cmd_scan(args):
             except ValueError:
                 continue
         all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required, scanner_config=scanner_config))
+        # Giro 6: layer budget check (Matrioska)
+        if scanner_config.get("_layer_map"):
+            content = f.read_text(encoding="utf-8", errors="replace")
+            rel = str(f.relative_to(primary_vault)).replace("\\", "/")
+            budget_issues = check_layer_budget(rel, content, scanner_config)
+            all_issues.extend(budget_issues)
+            strict_layer_violations += len(budget_issues)
 
     graph = build_graph(primary_vault, file_index)
     by_type = {}
@@ -157,6 +182,18 @@ def cmd_scan(args):
                 print(f"  missing_domain_tag: {domain_issues} (threshold: {strict_threshold})")
                 print(f"  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
             sys.exit(1)
+
+    # --strict-layer: CI guardrail — fail if any layer budget violated
+    if args.strict_layer:
+        if strict_layer_violations > 0:
+            if not args.json:
+                print(f"\n--- STRICT LAYER FAILED ---")
+                print(f"  layer_budget violations: {strict_layer_violations}")
+                print(f"  Fix: reduce file size/pointer density or update taxonomy budget")
+            sys.exit(1)
+        elif not args.json:
+            print(f"\n--- STRICT LAYER PASSED ---")
+            print(f"  All files within layer budgets.")
 
     # Obsidian tip (always, if issues found and not JSON)
     if all_issues and not args.json:
@@ -1275,6 +1312,8 @@ def main():
     p.add_argument("--require", help="Required frontmatter fields (comma-separated)")
     p.add_argument("--tag", action="store_true", help="Add quality/review-needed tag to files with issues (for Obsidian filtering)")
     p.add_argument("--strict", type=int, metavar="N", help="Exit code 1 if missing_domain_tag > N (CI guardrail, e.g. --strict 0)")
+    p.add_argument("--strict-layer", action="store_true", help="Enforce layer budget rules (requires --taxonomy)")
+    p.add_argument("--taxonomy", help="Taxonomy YAML path for layer classification + budget rules")
 
     p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
     p.add_argument("vault", nargs="?", default=".")

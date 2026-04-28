@@ -65,6 +65,23 @@ def _parse_yaml_shallow(text: str) -> dict:
     return result
 
 
+def _coerce_budget(budget):
+    """Coerce budget values from YAML strings to Python numerics."""
+    out = {}
+    for k, v in budget.items():
+        if isinstance(v, str):
+            try:
+                if "." in v:
+                    out[k] = float(v)
+                else:
+                    out[k] = int(v)
+            except (ValueError, TypeError):
+                out[k] = v
+        else:
+            out[k] = v
+    return out
+
+
 def load_taxonomy(taxonomy_path: str | Path) -> dict:
     """Load a taxonomy YAML file defining layers and rules.
 
@@ -108,6 +125,9 @@ def load_taxonomy(taxonomy_path: str | Path) -> dict:
         valid[name] = {"label": spec.get("label", name), "rules": rules}
         if isinstance(spec.get("description"), str):
             valid[name]["description"] = spec["description"]
+        budget = spec.get("budget", {})
+        if isinstance(budget, dict):
+            valid[name]["budget"] = _coerce_budget(budget)
 
     return valid
 
