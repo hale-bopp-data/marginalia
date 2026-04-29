@@ -10,7 +10,8 @@ from . import __version__
 from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
                       tag_issues, untag_issues, REVIEW_TAG, build_tag_dictionary,
                       build_tag_inventory, build_synonym_map_from_inventory,
-                      rationalize_tags, parse_frontmatter)
+                      rationalize_tags, parse_frontmatter, check_layer_budget,
+                      check_nonna_standard)
 from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
@@ -70,7 +71,32 @@ def cmd_scan(args):
             vaults = _ensure_vaults(cfg_vaults)
 
     required = args.require.split(",") if args.require else ["title", "tags"]
+    scanner_config = {
+        "required_tags": cfg.get("required_tags", []),
+        "valid_rag_categories": cfg.get("valid_rag_categories", []),
+        "validate_answers": cfg.get("validate_answers", False),
+        "valid_statuses": cfg.get("valid_statuses", []),
+    }
+
+    # Layer budget enforcement (Giro 6 — Matrioska)
+    strict_layer_violations = 0
+    if args.strict_layer and args.taxonomy:
+        from . import layer as _layer
+        taxonomy = _layer.load_taxonomy(args.taxonomy)
+        budgets = {name: spec.get("budget", {}) for name, spec in taxonomy.items() if spec.get("budget")}
+        if budgets:
+            result = _layer.classify_vault(vaults[0], args.taxonomy)
+            layer_map = {}
+            for lname, linfo in result["classification"].items():
+                for f in linfo.get("files", []):
+                    layer_map[f["path"]] = lname
+            scanner_config["layer_budgets"] = budgets
+            scanner_config["_layer_map"] = layer_map
+    elif args.strict_layer and not args.taxonomy:
+        print("ERROR: --strict-layer requires --taxonomy <file>", file=sys.stderr)
+        sys.exit(2)
     all_issues = []
+    nonna_scores = {}  # rel_path -> (score, checks)
 
     # For single vault, use existing graph; for multi, scan each separately
     primary_vault = vaults[0]
@@ -87,7 +113,18 @@ def cmd_scan(args):
                 break
             except ValueError:
                 continue
-        all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required))
+        all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required, scanner_config=scanner_config))
+        # Giro 6: layer budget check (Matrioska) + Nonna Standard
+        if scanner_config.get("_layer_map") or args.standard == "nonna":
+            content = f.read_text(encoding="utf-8", errors="replace")
+            rel = str(f.relative_to(primary_vault)).replace("\\", "/")
+            if scanner_config.get("_layer_map"):
+                budget_issues = check_layer_budget(rel, content, scanner_config)
+                all_issues.extend(budget_issues)
+                strict_layer_violations += len(budget_issues)
+            if args.standard == "nonna" and ("guides/" in rel or "Runbooks/" in rel or "standards/" in rel):
+                score, checks = check_nonna_standard(content, rel)
+                nonna_scores[rel] = (score, checks)
 
     graph = build_graph(primary_vault, file_index)
     by_type = {}
@@ -150,6 +187,55 @@ def cmd_scan(args):
                 print(f"\n--- STRICT MODE FAILED ---")
                 print(f"  missing_domain_tag: {domain_issues} (threshold: {strict_threshold})")
                 print(f"  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
+            sys.exit(1)
+
+    # --strict-layer: CI guardrail — fail if any layer budget violated
+    if args.strict_layer:
+        if strict_layer_violations > 0:
+            if not args.json:
+                print(f"\n--- STRICT LAYER FAILED ---")
+                print(f"  layer_budget violations: {strict_layer_violations}")
+                print(f"  Fix: reduce file size/pointer density or update taxonomy budget")
+            sys.exit(1)
+        elif not args.json:
+            print(f"\n--- STRICT LAYER PASSED ---")
+            print(f"  All files within layer budgets.")
+
+    # --strict-quality: CI guardrail — fail if placeholder summaries, stale drafts, or empty fields
+    if args.strict_quality:
+        quality_issues = by_type.get("summary_todo", 0) + by_type.get("stale_draft", 0) + by_type.get("empty_required_fields", 0)
+        if quality_issues > 0:
+            if not args.json:
+                print(f"\n--- STRICT QUALITY FAILED ---")
+                print(f"  Placeholder/stale/empty issues: {quality_issues}")
+                print(f"  Fix: marginalia fix <vault> --giri 7 --apply")
+            sys.exit(1)
+        elif not args.json:
+            print(f"\n--- STRICT QUALITY PASSED ---")
+            print(f"  No placeholder summaries, stale drafts, or empty fields.")
+
+    # Nonna Standard: report scores per guide
+    if args.standard == "nonna" and nonna_scores:
+        if not args.json:
+            print(f"\n--- Nonna Standard ---")
+            below_threshold = []
+            for path, (score, checks) in sorted(nonna_scores.items()):
+                bar = "#" * score + "-" * (6 - score)
+                print(f"  [{bar}] {score}/6 {path}")
+                threshold = args.strict_nonna if args.strict_nonna is not None else 4
+                if score < threshold:
+                    below_threshold.append((path, score, checks))
+            if below_threshold:
+                print(f"\n  Below threshold ({threshold}/6):")
+                for path, score, checks in below_threshold[:10]:
+                    failed = [c["label"] for c in checks if not c["passed"]]
+                    print(f"    {path} ({score}/6): missing {', '.join(failed[:3])}")
+        nonna_below = sum(1 for s, _ in nonna_scores.values() if s < (args.strict_nonna or 4))
+        if args.strict_nonna is not None and nonna_below > 0:
+            if not args.json:
+                print(f"\n--- STRICT NONNA FAILED ---")
+                print(f"  {nonna_below} guide(s) below threshold ({args.strict_nonna}/6)")
+                print(f"  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
             sys.exit(1)
 
     # Obsidian tip (always, if issues found and not JSON)
@@ -1114,6 +1200,30 @@ def cmd_validate(args):
     sys.exit(0 if report["valid"] else 1)
 
 
+def cmd_validate_handoff(args):
+    from .handoff_validator import validate_handoff
+    report = validate_handoff(args.file)
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
+    else:
+        status = "VALID" if report["valid"] else "INVALID"
+        print(f"marginalia validate-handoff — {status}")
+        print(f"  File: {args.file}")
+        print(f"  Sections: {len(report['sections_found'])}/{report['sections_expected']}")
+        if report["errors"]:
+            print(f"\n  Errors:")
+            for e in report["errors"]:
+                print(f"    [{e['section']}] {e['reason']}")
+        if report["warnings"]:
+            print(f"\n  Warnings:")
+            for w in report["warnings"]:
+                print(f"    [{w['section']}] {w['detail']}")
+        if report["valid"]:
+            print(f"\n  All 9 sections present and valid.")
+    sys.exit(0 if report["valid"] else 1)
+
+
 def cmd_catalog(args):
     catalog = {
         "action": "marginalia-catalog",
@@ -1131,7 +1241,14 @@ def cmd_catalog(args):
 def cmd_quickstart(args):
     vault = _ensure_vault(args.vault)
     required = args.require.split(",") if args.require else ["title", "tags"]
-    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth)
+    cfg = _load_cfg(args, vault_hint=vault)
+    scanner_config = {
+        "required_tags": cfg.get("required_tags", []),
+        "valid_rag_categories": cfg.get("valid_rag_categories", []),
+        "validate_answers": cfg.get("validate_answers", False),
+        "valid_statuses": cfg.get("valid_statuses", []),
+    }
+    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth, scanner_config=scanner_config)
 
     if args.write:
         output_dir = args.output or (vault / "out" / "marginalia-quickstart")
@@ -1191,6 +1308,63 @@ def cmd_ai(args):
     sys.exit(0)
 
 
+def cmd_layer(args):
+    from . import layer
+    if args.action == "classify":
+        vault = _ensure_vault(args.vault)
+        result = layer.classify_vault(vault, args.taxonomy)
+        if args.out:
+            Path(args.out).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Layer classification written to {args.out}")
+        elif args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            _print_layer_classify(result)
+    elif args.action == "resolve":
+        vault = _ensure_vault(args.vault)
+        result = layer.resolve_query(args.query, vault, args.taxonomy, top_k=args.top_k)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            _print_layer_resolve(result)
+    else:
+        print("Usage: marginalia layer {classify, resolve} ...", file=sys.stderr)
+    sys.exit(0)
+
+
+def _print_layer_classify(result):
+    stats = result["stats"]
+    classification = result["classification"]
+    print(f"marginalia layer classify — {result['vault']}")
+    print(f"Files: {stats['total_files']}  Classified: {stats['classified']}  Unclassified: {stats['unclassified']}")
+    print(f"Coverage: {stats['coverage']}%\n")
+    for name in sorted(classification.keys()):
+        info = classification[name]
+        print(f"  {name} ({info['label']}): {info['count']} files")
+        if info.get("description"):
+            print(f"    {info['description']}")
+    if result["unclassified"]:
+        print(f"\n  Unclassified ({len(result['unclassified'])}):")
+        for item in result["unclassified"][:5]:
+            print(f"    {item['path']} ({item['reason']})")
+        if len(result["unclassified"]) > 5:
+            print(f"    ... and {len(result['unclassified']) - 5} more")
+    print(f"\nMethods: {stats['by_method']}")
+
+
+def _print_layer_resolve(result):
+    print(f"Query: {result['query']}")
+    for layer_name in result["suggested_order"]:
+        files = result["results_by_layer"].get(layer_name, [])
+        if not files:
+            continue
+        label = layer_name if layer_name != "_unclassified" else "?? (unclassified)"
+        print(f"\n  {label}:")
+        for f in files[:5]:
+            title = f.get("title", "") or f["path"]
+            print(f"    {title}  (score={f['score']})")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="marginalia",
         description="marginalia -- Markdown vault scanner, fixer, and AI brain for Obsidian")
@@ -1205,6 +1379,11 @@ def main():
     p.add_argument("--require", help="Required frontmatter fields (comma-separated)")
     p.add_argument("--tag", action="store_true", help="Add quality/review-needed tag to files with issues (for Obsidian filtering)")
     p.add_argument("--strict", type=int, metavar="N", help="Exit code 1 if missing_domain_tag > N (CI guardrail, e.g. --strict 0)")
+    p.add_argument("--strict-layer", action="store_true", help="Enforce layer budget rules (requires --taxonomy)")
+    p.add_argument("--strict-quality", action="store_true", help="Exit 1 if any placeholder summary, stale draft, or empty required field")
+    p.add_argument("--standard", choices=["nonna"], help="Check guide compliance against a standard (e.g. nonna)")
+    p.add_argument("--strict-nonna", type=int, metavar="N", help="Exit 1 if Nonna Standard score < N (default: 4)")
+    p.add_argument("--taxonomy", help="Taxonomy YAML path for layer classification + budget rules")
 
     p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
     p.add_argument("vault", nargs="?", default=".")
@@ -1301,7 +1480,7 @@ def main():
     pc.add_argument("--after", required=True, help="Path to after snapshot JSON")
     pc.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("closeout", help="Session closeout: collect git data, generate reports, write files")
+    p = sub.add_parser("closeout", help="[EasyWay] Session closeout: collect git data, generate reports, write files")
     p.add_argument("session_number", type=int, help="Session number (e.g. 103)")
     p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
     p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
@@ -1311,7 +1490,7 @@ def main():
     p.add_argument("--sessions-history", help="Path to sessions-history.md")
     p.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("session-close", help="Full 9-point session closeout orchestrator (wraps closeout + checks)")
+    p = sub.add_parser("session-close", help="[EasyWay] Full 9-point session closeout orchestrator (wraps closeout + checks)")
     p.add_argument("session_number", type=int, help="Session number (e.g. 141)")
     p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
     p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
@@ -1324,6 +1503,10 @@ def main():
     p = sub.add_parser("validate", help="Validate a JSON output against acceptance criteria (Evaluator pattern)")
     p.add_argument("input", help="Path to JSON file or - for stdin")
     p.add_argument("--type", choices=["closeout", "scan"], default="closeout", help="Validation type (default: closeout)")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("validate-handoff", help="Validate a handoff file against v2 9-section declarative format")
+    p.add_argument("file", help="Path to handoff .md file")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("ai", help="AI-powered analysis (OpenRouter/OpenAI/Ollama)")
@@ -1342,6 +1525,22 @@ def main():
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
 
+    p = sub.add_parser("layer", help="Classify vault files into layers via taxonomy (classify, resolve)")
+    layer_sub = p.add_subparsers(dest="action")
+
+    plc = layer_sub.add_parser("classify", help="Classify all files into layers defined by taxonomy YAML")
+    plc.add_argument("vault", nargs="?", default=".")
+    plc.add_argument("--taxonomy", "-t", required=True, help="Path to taxonomy YAML defining layers and rules")
+    plc.add_argument("--out", "-o", help="Output JSON path (default: stdout)")
+    plc.add_argument("--json", action="store_true")
+
+    plr = layer_sub.add_parser("resolve", help="Resolve a query to relevant files grouped by layer")
+    plr.add_argument("query", help="Natural-language query to resolve")
+    plr.add_argument("vault", nargs="?", default=".")
+    plr.add_argument("--taxonomy", "-t", required=True, help="Path to taxonomy YAML defining layers and rules")
+    plr.add_argument("--top-k", type=int, default=5, help="Max results per layer (default: 5)")
+    plr.add_argument("--json", action="store_true")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1352,7 +1551,9 @@ def main():
             "css": cmd_css, "graph": cmd_graph, "catalog": cmd_catalog, "quickstart": cmd_quickstart,
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
-            "validate": cmd_validate, "graph-export": cmd_graph_export}
+            "validate": cmd_validate, "graph-export": cmd_graph_export,
+            "validate-handoff": cmd_validate_handoff,
+            "layer": cmd_layer}
     cmds[args.command](args)
 
 

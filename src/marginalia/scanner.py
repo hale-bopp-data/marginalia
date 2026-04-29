@@ -1,5 +1,6 @@
 """Core scanning engine — frontmatter, empty sections, broken links, graph."""
 
+import hashlib
 import json
 import os
 import re
@@ -10,6 +11,20 @@ SKIP_DIRS = {".git", "node_modules", ".obsidian", "__pycache__", "dist", "build"
 SKIP_FILES = {"CHANGELOG.md", "LICENSE.md"}
 
 FM_REQUIRED_DEFAULT = ["title", "tags"]
+
+
+def _DEFAULT_SCANNER_CONFIG():
+    """Return built-in defaults for backward compatibility when no config provided."""
+    return {
+        "required_tags": ["domain/"],
+        "valid_rag_categories": [
+            "infra", "git", "governance", "architecture", "security",
+            "operations", "history", "agents", "data", "context",
+            "mcp", "external", "emergency", "onboarding", "edge_case",
+        ],
+        "validate_answers": True,
+        "valid_statuses": ["active", "draft", "deprecated", "planned", "archived", "superseded"],
+    }
 
 
 def find_md_files(vault_path, skip_dirs=None, skip_files=None):
@@ -162,10 +177,19 @@ def suggest_correct_path(filepath, target_filename, file_index):
     return rel, best[1]
 
 
-def scan_file(filepath, vault_path, file_index=None, required_fields=None):
-    """Scan a single .md file for quality issues."""
+def scan_file(filepath, vault_path, file_index=None, required_fields=None, scanner_config=None):
+    """Scan a single .md file for quality issues.
+
+    scanner_config: dict from marginalia.yaml with optional keys:
+        required_tags: list[str] — tag prefixes required (e.g. ['domain/'])
+        valid_rag_categories: list[str] — allowed rag_categories values
+        validate_answers: bool — check answers field format
+        valid_statuses: list[str] — allowed status values
+    If None, uses built-in defaults (backward compatible).
+    """
     issues = []
     required_fields = required_fields or FM_REQUIRED_DEFAULT
+    scfg = scanner_config if scanner_config is not None else _DEFAULT_SCANNER_CONFIG()
 
     try:
         content = filepath.read_text(encoding="utf-8", errors="replace")
@@ -239,80 +263,83 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None):
 
     # 1c. RAG-critical fields — status, rag_categories, answers (S167)
     if fm is not None and not is_template and not is_archive:
-        _VALID_STATUSES = {"active", "draft", "deprecated", "planned", "archived", "superseded"}
+        _DEFAULT_STATUSES = {"active", "draft", "deprecated", "planned", "archived", "superseded"}
+        valid_statuses = set(scfg.get("valid_statuses", [])) or _DEFAULT_STATUSES
         status_raw = fm.get("status", "").strip().strip("'\"").lower()
-        if status_raw and status_raw not in _VALID_STATUSES:
+        if status_raw and status_raw not in valid_statuses:
             issues.append({
                 "file": rel_path, "type": "invalid_status", "line": 1,
-                "description": f"status '{status_raw}' not in {sorted(_VALID_STATUSES)}",
+                "description": f"status '{status_raw}' not in {sorted(valid_statuses)}",
                 "auto_fixable": False,
             })
 
-        _VALID_RAG_CATS = {
-            "infra", "git", "governance", "architecture", "security",
-            "operations", "history", "agents", "data", "context",
-            "mcp", "external", "emergency", "onboarding", "edge_case",
-        }
-        rag_cats_raw = fm.get("rag_categories", "")
-        if rag_cats_raw:
-            match_rc = re.search(r"\[([^\]]*)\]", rag_cats_raw)
-            cats = [c.strip().strip("'\"") for c in match_rc.group(1).split(",") if c.strip()] if match_rc else []
-            if not cats:
-                issues.append({
-                    "file": rel_path, "type": "invalid_rag_categories", "line": 1,
-                    "description": "rag_categories is present but empty",
-                    "auto_fixable": False,
-                })
-            else:
-                bad = [c for c in cats if c not in _VALID_RAG_CATS]
-                if bad:
+        # rag_categories validation — config-driven, defaults to legacy set
+        valid_rag_cats = set(scfg.get("valid_rag_categories", []))
+        if valid_rag_cats:
+            rag_cats_raw = fm.get("rag_categories", "")
+            if rag_cats_raw:
+                match_rc = re.search(r"\[([^\]]*)\]", rag_cats_raw)
+                cats = [c.strip().strip("'\"") for c in match_rc.group(1).split(",") if c.strip()] if match_rc else []
+                if not cats:
                     issues.append({
                         "file": rel_path, "type": "invalid_rag_categories", "line": 1,
-                        "description": f"rag_categories contains unknown values: {bad}. Valid: {sorted(_VALID_RAG_CATS)}",
+                        "description": "rag_categories is present but empty",
                         "auto_fixable": False,
                     })
+                else:
+                    bad = [c for c in cats if c not in valid_rag_cats]
+                    if bad:
+                        issues.append({
+                            "file": rel_path, "type": "invalid_rag_categories", "line": 1,
+                            "description": f"rag_categories contains unknown values: {bad}. Valid: {sorted(valid_rag_cats)}",
+                            "auto_fixable": False,
+                        })
 
-        answers_raw = fm.get("answers", "")
-        if answers_raw:
-            match_ans = re.search(r"\[([^\]]*)\]", answers_raw)
-            answers = [a.strip().strip("'\"") for a in match_ans.group(1).split(",") if a.strip()] if match_ans else []
-            if not answers:
-                issues.append({
-                    "file": rel_path, "type": "malformed_answers", "line": 1,
-                    "description": "answers is present but empty — remove or add questions",
-                    "auto_fixable": False,
-                })
-            else:
-                bad_ans = [a for a in answers if not a.endswith("?")]
-                if bad_ans:
+        # answers validation — config-driven (default: enabled)
+        if scfg.get("validate_answers", True):
+            answers_raw = fm.get("answers", "")
+            if answers_raw:
+                match_ans = re.search(r"\[([^\]]*)\]", answers_raw)
+                answers = [a.strip().strip("'\"") for a in match_ans.group(1).split(",") if a.strip()] if match_ans else []
+                if not answers:
                     issues.append({
                         "file": rel_path, "type": "malformed_answers", "line": 1,
-                        "description": f"answers should be questions (end with '?'): {bad_ans[:3]}",
+                        "description": "answers is present but empty — remove or add questions",
                         "auto_fixable": False,
                     })
+                else:
+                    bad_ans = [a for a in answers if not a.endswith("?")]
+                    if bad_ans:
+                        issues.append({
+                            "file": rel_path, "type": "malformed_answers", "line": 1,
+                            "description": f"answers should be questions (end with '?'): {bad_ans[:3]}",
+                            "auto_fixable": False,
+                        })
 
-    # 1d. Domain tag coverage — files without domain/ tags are invisible to RAG routing
-    if fm is not None:
+    # 1d. Required tag prefix — configurable via required_tags (default: ['domain/'])
+    required_tags = scfg.get("required_tags", [])
+    if fm is not None and required_tags:
         tags = extract_tags(fm)
-        has_domain = any(t.startswith("domain/") for t in tags)
-        if not has_domain and not is_template and not is_archive:
-            # Suggest fix: infer domain from path
-            from .fixer import _PATH_DOMAIN_MAP
-            suggested_domain = None
-            norm_path = rel_path.replace("\\", "/")
-            for prefix in sorted(_PATH_DOMAIN_MAP.keys(), key=len, reverse=True):
-                if norm_path.startswith(prefix + "/") or norm_path.startswith(prefix.lower() + "/"):
-                    suggested_domain = _PATH_DOMAIN_MAP[prefix]
-                    break
-            fix_hint = (f"Run: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply"
-                        if suggested_domain else
-                        "Run: marginalia tags <vault> --analyze to get LLM suggestions")
-            issues.append({
-                "file": rel_path, "type": "missing_domain_tag", "line": 1,
-                "description": "No domain/ tag — file invisible to RAG domain routing",
-                "fix": f"domain/{suggested_domain} (path inference)" if suggested_domain else fix_hint,
-                "auto_fixable": suggested_domain is not None,
-            })
+        for prefix in required_tags:
+            has_prefix = any(t.startswith(prefix) for t in tags)
+            if not has_prefix and not is_template and not is_archive:
+                # Suggest fix: infer from path
+                from .fixer import _PATH_DOMAIN_MAP
+                suggested = None
+                norm_path = rel_path.replace("\\", "/")
+                for pfx in sorted(_PATH_DOMAIN_MAP.keys(), key=len, reverse=True):
+                    if norm_path.startswith(pfx + "/") or norm_path.startswith(pfx.lower() + "/"):
+                        suggested = _PATH_DOMAIN_MAP[pfx]
+                        break
+                fix_hint = (f"Run: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply"
+                            if suggested else
+                            "Run: marginalia tags <vault> --analyze to get LLM suggestions")
+                issues.append({
+                    "file": rel_path, "type": "missing_required_tag", "line": 1,
+                    "description": f"No {prefix} tag — required by scanner config",
+                    "fix": f"{prefix}{suggested} (path inference)" if suggested else fix_hint,
+                    "auto_fixable": suggested is not None,
+                })
 
     # 2. Empty sections (antifragile — GEDI Case #116, S154)
     # A section is truly empty only if there is no text content AND no sub-headings
@@ -409,6 +436,118 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None):
     return issues
 
 
+def check_layer_budget(rel_path, content, scfg):
+    """Check file against layer budget rules (Giro 6 — Matrioska).
+
+    Consumes classification from scfg['_layer_map'] (rel_path -> layer_name)
+    and budget rules from scfg['layer_budgets'] (layer_name -> {max_lines, min_pointer_density}).
+
+    Returns list of issues.
+    """
+    layer_map = scfg.get("_layer_map", {})
+    budgets = scfg.get("layer_budgets", {})
+    if not layer_map or not budgets:
+        return []
+
+    layer_name = layer_map.get(rel_path)
+    if not layer_name:
+        return []
+
+    budget = budgets.get(layer_name, {})
+    if not budget:
+        return []
+
+    issues = []
+    line_count = len(content.split("\n"))
+
+    max_lines = budget.get("max_lines")
+    if isinstance(max_lines, (int, float)) and max_lines > 0 and line_count > max_lines:
+        issues.append({
+            "file": rel_path, "type": "layer_budget_exceeded", "line": 1,
+            "description": f"{layer_name}: {line_count} lines exceeds budget of {int(max_lines)}",
+            "auto_fixable": False,
+        })
+
+    min_pointer_density = budget.get("min_pointer_density")
+    if isinstance(min_pointer_density, (int, float)) and min_pointer_density > 0:
+        links = sum(1 for ln in content.split("\n") if re.search(r"\[\[.+?\]\]|\[.+?\]\(.+?\)", ln))
+        density = links / max(line_count, 1)
+        if density < min_pointer_density:
+            issues.append({
+                "file": rel_path, "type": "layer_budget_exceeded", "line": 1,
+                "description": f"{layer_name}: pointer density {density:.2f} below minimum {min_pointer_density}",
+                "auto_fixable": False,
+            })
+
+    return issues
+
+
+def check_nonna_standard(content, rel_path):
+    """Check a guide against the Nonna Standard (6 elementi strutturali).
+
+    Returns (score 0-6, list of checks {name, passed, detail}).
+    """
+    checks = []
+
+    # 1. Table "Cosa c'e e dove" — any markdown table with at least 2 columns and 2+ data rows
+    table_rows = re.findall(r"^\|.+\|.+\|", content, re.MULTILINE)
+    has_table = len(table_rows) >= 3  # header + separator + at least 1 data row
+    checks.append({"name": "prereq_table", "label": "Tabella prerequisiti",
+                   "passed": has_table,
+                   "detail": f"{len(table_rows)} table rows found" if has_table else "No markdown table found"})
+
+    # 2. Method-of-approach — ordered list (1. 2. 3.) with at least 3 items
+    ordered_items = re.findall(r"^\s*\d+\.\s+\S", content, re.MULTILINE)
+    has_method = len(ordered_items) >= 3
+    checks.append({"name": "method_approach", "label": "Metodo di approccio",
+                   "passed": has_method,
+                   "detail": f"{len(ordered_items)} ordered list items" if has_method else "< 3 ordered list items"})
+
+    # 3. At least 3 copy-paste recipes — code blocks (``` ... ```)
+    code_blocks = re.findall(r"```[\s\S]*?```", content)
+    has_recipes = len(code_blocks) >= 3
+    checks.append({"name": "copy_paste_recipes", "label": "3+ ricette copia-incolla",
+                   "passed": has_recipes,
+                   "detail": f"{len(code_blocks)} code blocks" if has_recipes else f"Only {len(code_blocks)} code blocks"})
+
+    # 4. Troubleshooting table — heading with "troubleshoot" or "error" + table
+    has_trouble_heading = bool(re.search(r"^#{1,4}\s+.*(?:roubleshoot|error|problemi|risoluzione)", content, re.MULTILINE | re.IGNORECASE))
+    # Find if any table appears after a troubleshooting heading
+    trouble_section = False
+    if has_trouble_heading:
+        sections = re.split(r"^#{1,4}\s+", content, flags=re.MULTILINE)
+        for sec in sections:
+            if re.match(r".*(?:roubleshoot|error|problemi|risoluzione)", sec, re.IGNORECASE):
+                if len(re.findall(r"^\|.+\|.+\|", sec, re.MULTILINE)) >= 3:
+                    trouble_section = True
+                    break
+    checks.append({"name": "troubleshooting", "label": "Tabella troubleshooting",
+                   "passed": trouble_section,
+                   "detail": "Heading + table found" if trouble_section else "No troubleshooting section with table"})
+
+    # 5. "Da directory esterne" section — heading referencing external/other directories
+    has_external = bool(re.search(r"^#{1,4}\s+.*(?:directory esterne|da qualsiasi|da altre directory|da directory|funziona da)",
+                                  content, re.MULTILINE | re.IGNORECASE))
+    checks.append({"name": "external_dirs", "label": "Sezione directory esterne",
+                   "passed": has_external,
+                   "detail": "Section found" if has_external else "No external-directory section"})
+
+    # 6. Links to related guides — "Riferimenti" or "Vedi anche" section with links
+    has_refs = False
+    ref_sections = re.findall(r"^#{1,4}\s+(?:Riferimenti|Vedi anche|Guide correlate|Related).*?\n(.*?)(?=^#{1,4}\s+|\Z)",
+                              content, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    for sec_content in ref_sections:
+        if re.search(r"\[.+\]\(.+\)|\[\[.+\]\]", sec_content):
+            has_refs = True
+            break
+    checks.append({"name": "related_links", "label": "Link a guide correlate",
+                   "passed": has_refs,
+                   "detail": "Reference section with links" if has_refs else "No reference section with links"})
+
+    score = sum(1 for c in checks if c["passed"])
+    return score, checks
+
+
 REVIEW_TAG = "quality/review-needed"
 
 
@@ -487,9 +626,16 @@ def build_tag_inventory(vault_path, taxonomy_path=None, progress_cb=None, increm
         title = fm.get("title", "").strip('"\'') if fm else f.stem
 
         # Incremental check: skip if file unchanged since cached analysis
-        file_mtime = f.stat().st_mtime
+        # Use content hash (SHA256) as primary key; fallback to mtime for legacy cache
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
         cached = cache.get(rel)
-        if incremental and cached and cached.get("mtime") == file_mtime:
+        cache_match = False
+        if incremental and cached:
+            if cached.get("content_hash") == content_hash:
+                cache_match = True
+            elif cached.get("mtime") == f.stat().st_mtime:
+                cache_match = True  # legacy cache, mtime unchanged
+        if cache_match and cached:
             inventory.append(cached["entry"])
             cache_hits += 1
             if progress_cb:
@@ -514,8 +660,8 @@ def build_tag_inventory(vault_path, taxonomy_path=None, progress_cb=None, increm
         }
         inventory.append(entry)
 
-        # Update cache
-        cache[rel] = {"mtime": file_mtime, "entry": entry}
+        # Update cache with content hash
+        cache[rel] = {"content_hash": content_hash, "mtime": f.stat().st_mtime, "entry": entry}
 
     # Save cache for next run
     if incremental:

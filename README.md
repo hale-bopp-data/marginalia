@@ -106,7 +106,7 @@ marginalia link docs/ ../wiki/ --min-score 0.3 --max-links 5
 
 Finds semantically related notes using TF-IDF cosine similarity. Scores boost notes that share tags or directories. Writes `## See also` sections with relative `[[wikilinks]]` (dry-run by default).
 
-### `fix` — Automated fixes (4 Giri pipeline)
+### `fix` — Automated fixes (8 Giri pipeline, Giro 0-7)
 
 ```bash
 marginalia fix ~/my-vault/              # dry-run

@@ -35,6 +35,17 @@ DEFAULTS: dict = {
     "heading": "## See also",
     "min_len": 3,
     "max_terms": 500,
+    # Scanner checks — default = legacy behavior (domain/ required, rag_categories valid)
+    # Set to empty list/False in marginalia.yaml to disable for generic vaults
+    "required_tags": ["domain/"],
+    "required_fields": ["title", "tags"],
+    "valid_rag_categories": [
+        "infra", "git", "governance", "architecture", "security",
+        "operations", "history", "agents", "data", "context",
+        "mcp", "external", "emergency", "onboarding", "edge_case",
+    ],
+    "valid_statuses": ["active", "draft", "deprecated", "planned", "archived", "superseded"],
+    "validate_answers": True,
 }
 
 CONFIG_FILENAMES = ("marginalia.yaml", "marginalia.yml", ".marginalia.yaml", ".marginalia.yml")
