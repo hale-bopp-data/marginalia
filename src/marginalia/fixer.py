@@ -66,13 +66,22 @@ def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True)
     """Add missing frontmatter to files that don't have it.
 
     Strategy:
-    - Files with NO frontmatter: add minimal --- title/tags --- block
-    - Title is derived from filename (kebab-case → Title Case)
-    - Tags left empty for user to fill
+    - Files with NO frontmatter: try LLM (brain.generate_frontmatter) first
+    - If LLM available → title, tags, status, summary from content analysis
+    - If LLM unavailable → derive title from filename (kebab-case → Title Case)
+    - Tags left empty for user to fill when LLM is unavailable
     """
     required_fields = required_fields or ["title", "tags"]
     base = Path(vault_path)
     fixes = []
+
+    # Check LLM availability once (outside loop)
+    llm_available = False
+    try:
+        from .brain import generate_frontmatter, is_available
+        llm_available = is_available()
+    except Exception:
+        pass
 
     for f in inventory["md_files"]:
         rel = str(f.relative_to(base)).replace("\\", "/")
@@ -83,15 +92,33 @@ def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True)
         fm = parse_frontmatter(content)
 
         if fm is None:
-            # Generate frontmatter from filename
+            # Strategy: try LLM first, fall back to filename derivation
             stem = f.stem
             title = stem.replace("-", " ").replace("_", " ").title()
-            new_fm = f"---\ntitle: \"{title}\"\ntags: []\n---\n\n"
-            new_content = new_fm + content
+            llm_fm = None
+            if llm_available:
+                try:
+                    llm_fm = generate_frontmatter(str(f))
+                except Exception:
+                    pass
+
+            if llm_fm:
+                new_content = llm_fm + "\n\n" + content
+                try:
+                    fm_parsed = parse_frontmatter(new_content)
+                    if fm_parsed and fm_parsed.get("title"):
+                        title = fm_parsed.get("title")
+                except Exception:
+                    pass
+                action = "add_frontmatter_llm"
+            else:
+                new_fm = f"---\ntitle: \"{title}\"\ntags: []\n---\n\n"
+                new_content = new_fm + content
+                action = "add_frontmatter"
 
             fixes.append({
                 "file": rel,
-                "action": "add_frontmatter",
+                "action": action,
                 "title": title,
             })
 
