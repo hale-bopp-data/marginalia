@@ -76,7 +76,12 @@ def cmd_scan(args):
         "valid_rag_categories": cfg.get("valid_rag_categories", []),
         "validate_answers": cfg.get("validate_answers", False),
         "valid_statuses": cfg.get("valid_statuses", []),
+        "validate_5d_rubric": cfg.get("validate_5d_rubric", False),
     }
+    # 5-domande rubric: CLI --rubric 5d-ew or --report-5domande activates check
+    # (regardless of marginalia.yaml setting). PBI #1801, doctrine: wiki-frontmatter-schema.md
+    if getattr(args, "rubric", None) == "5d-ew" or getattr(args, "report_5domande", False):
+        scanner_config["validate_5d_rubric"] = True
 
     # Layer budget enforcement (Giro 6 — Matrioska)
     strict_layer_violations = 0
@@ -140,6 +145,50 @@ def cmd_scan(args):
         "issues": all_issues, "graph": graph,
         "status": "clean" if not all_issues else "issues_found",
     }
+
+    # --report-5domande: aggregate compliance per folder + missing-field distribution
+    # PBI #1801, doctrine: easyway/wiki/guides/governance/wiki-frontmatter-schema.md
+    if getattr(args, "report_5domande", False):
+        rubric_fields = ["purpose", "when_to_use", "why", "qa", "related"]
+        per_folder = {}
+        per_field_missing = {f: 0 for f in rubric_fields}
+        files_by_folder = {}
+        for f in md_files:
+            try:
+                rel = str(f.relative_to(vaults[0])).replace("\\", "/")
+            except ValueError:
+                rel = str(f)
+            folder = "/".join(rel.split("/")[:-1]) or "."
+            files_by_folder.setdefault(folder, set()).add(rel)
+        violators_by_file = {}
+        for issue in all_issues:
+            if issue.get("type") == "missing_5d_field":
+                file_rel = issue["file"]
+                for field in rubric_fields:
+                    if f"field: {field})" in issue.get("description", ""):
+                        violators_by_file.setdefault(file_rel, set()).add(field)
+                        per_field_missing[field] += 1
+                        break
+        for folder, files in files_by_folder.items():
+            total = len(files)
+            non_compliant = sum(1 for f in files if f in violators_by_file)
+            compliant = total - non_compliant
+            pct = round(100 * compliant / total, 1) if total else 0.0
+            per_folder[folder] = {
+                "files_scanned": total,
+                "compliant_files": compliant,
+                "compliance_pct": pct,
+                "non_compliant_files": non_compliant,
+            }
+        result["report_5domande"] = {
+            "rubric": "5d-ew",
+            "metric": "wiki_5domande_compliance_pct",
+            "per_folder": per_folder,
+            "per_field_missing": per_field_missing,
+            "violators_by_file": {f: sorted(list(s)) for f, s in violators_by_file.items()},
+            "doctrine": "easyway/wiki/guides/governance/wiki-frontmatter-schema.md",
+        }
+
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     else:
@@ -1384,6 +1433,8 @@ def main():
     p.add_argument("--standard", choices=["nonna"], help="Check guide compliance against a standard (e.g. nonna)")
     p.add_argument("--strict-nonna", type=int, metavar="N", help="Exit 1 if Nonna Standard score < N (default: 4)")
     p.add_argument("--taxonomy", help="Taxonomy YAML path for layer classification + budget rules")
+    p.add_argument("--rubric", choices=["5d-ew"], help="Apply named rubric (5d-ew = 5-domande wiki founder, S492 PBI #1801)")
+    p.add_argument("--report-5domande", action="store_true", help="Output compliance report per folder (compliance %% + missing-field distribution)")
 
     p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
     p.add_argument("vault", nargs="?", default=".")
