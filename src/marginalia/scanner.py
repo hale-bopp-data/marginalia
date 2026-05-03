@@ -341,6 +341,25 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None, scann
                     "auto_fixable": suggested is not None,
                 })
 
+    # 1e. 5-domande rubric — config-driven (S492 PBI #1801, founder voice S483)
+    # Validates 5 frontmatter fields machine-checkable: purpose / when_to_use / why / qa / related
+    # Heuristic regex zero-deps default. LLM semantic check opt-in via `marginalia ai`.
+    # Doctrine: easyway/wiki/guides/governance/wiki-frontmatter-schema.md
+    if fm is not None and not is_template and not is_archive and scfg.get("validate_5d_rubric", False):
+        from .validators import RUBRIC_5D_PREDICATES
+        for pred in RUBRIC_5D_PREDICATES:
+            try:
+                ok = pred["check"](fm)
+            except Exception:
+                ok = False
+            if not ok:
+                issues.append({
+                    "file": rel_path, "type": "missing_5d_field", "line": 1,
+                    "description": f"5-domande rubric: {pred['description']} (field: {pred['field']})",
+                    "fix": f"Add frontmatter field '{pred['field']}' per wiki-frontmatter-schema.md",
+                    "auto_fixable": False,
+                })
+
     # 2. Empty sections (antifragile — GEDI Case #116, S154)
     # A section is truly empty only if there is no text content AND no sub-headings
     # between this heading and the next heading of equal or higher level (or EOF).
