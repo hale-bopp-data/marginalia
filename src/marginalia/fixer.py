@@ -62,7 +62,7 @@ def giro0_inventory(vault_path):
 
 # --- Giro 1: Frontmatter ---
 
-def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True):
+def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True, ai_mode=False):
     """Add missing frontmatter to files that don't have it.
 
     Strategy:
@@ -75,13 +75,17 @@ def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True)
     base = Path(vault_path)
     fixes = []
 
-    # Check LLM availability once (outside loop)
+    # Check LLM availability once (outside loop), only if --ai flag is set
     llm_available = False
-    try:
-        from .brain import generate_frontmatter, is_available
-        llm_available = is_available()
-    except Exception:
-        pass
+    if ai_mode:
+        try:
+            from .brain import generate_frontmatter, is_available
+            if is_available():
+                llm_available = True
+            else:
+                print("WARNING: --ai flag set but no API key found. Using deterministic mode.", flush=True)
+        except Exception:
+            print("WARNING: --ai flag set but brain module failed to load. Using deterministic mode.", flush=True)
 
     for f in inventory["md_files"]:
         rel = str(f.relative_to(base)).replace("\\", "/")
@@ -807,7 +811,7 @@ def giro7_frontmatter_quality(vault_path, inventory, dry_run=True):
 # --- Orchestrator: run all giri ---
 
 def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
-            giri=None, only_files=None):
+            giri=None, only_files=None, ai_mode=False):
     """Run the multi-pass fix pipeline.
 
     Args:
@@ -859,7 +863,7 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
     total_fixes = 0
 
     if 1 in giri:
-        g1 = giro1_frontmatter(vault_path, inventory, required_fields=required_fields, dry_run=dry_run)
+        g1 = giro1_frontmatter(vault_path, inventory, required_fields=required_fields, dry_run=dry_run, ai_mode=ai_mode)
         results["giri"]["1_frontmatter"] = {"fixes": len(g1), "details": g1}
         total_fixes += len(g1)
         # Re-inventory after frontmatter changes (giro 2 needs fresh FM data)

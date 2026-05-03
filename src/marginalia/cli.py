@@ -772,7 +772,7 @@ def cmd_fix(args):
     only_files = args.files.split(",") if args.files else None
     result = fix_all(vault, dry_run=not args.apply, taxonomy_path=args.taxonomy,
                      required_fields=args.require.split(",") if args.require else None,
-                     giri=giri, only_files=only_files)
+                     giri=giri, only_files=only_files, ai_mode=args.ai)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     else:
@@ -1461,6 +1461,7 @@ def main():
     p.add_argument("--require", help="Required frontmatter fields")
     p.add_argument("--giri", help="Which giri to run (e.g. 1,2,3)")
     p.add_argument("--files", help="Comma-separated list of files to process (delta mode). Only these files will be fixed.")
+    p.add_argument("--ai", action="store_true", help="Use LLM for frontmatter generation in Giro 1 (requires API key)")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("fix-tags", help="Migrate flat tags to namespaced")
