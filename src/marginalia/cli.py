@@ -13,6 +13,8 @@ from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
                       rationalize_tags, parse_frontmatter, check_layer_budget,
                       check_nonna_standard)
 from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
+from .types import (load_types_taxonomy, discover_misplaced,
+                    add_type_to_frontmatter, fix_placement, summarize as types_summarize)
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
 from .operator import (
@@ -844,6 +846,63 @@ def cmd_graph_export(args):
     sys.exit(0)
 
 
+def cmd_types(args):
+    """Doc placement enforcement — discover misplaced files, optionally migrate (PBI #1858)."""
+    vault = _ensure_vault(args.vault)
+    types_map = load_types_taxonomy(getattr(args, "taxonomy", None))
+
+    print(f"marginalia {__version__} -- Types (placement enforcement)", file=sys.stderr)
+    print(f"Vault: {vault}", file=sys.stderr)
+    print(f"Taxonomy: {len(types_map)} types loaded "
+          f"({'YAML override' if getattr(args, 'taxonomy', None) else 'defaults'})",
+          file=sys.stderr)
+
+    results = discover_misplaced(vault, types_map=types_map)
+    counts = types_summarize(results)
+    actionable = [r for r in results
+                  if r["status"] in ("placement_mismatch", "missing_type")
+                  and (r.get("expected_path") or r.get("inferred_type"))]
+
+    summary = {"counts": counts, "total": len(results), "actionable": len(actionable)}
+
+    apply_changes = getattr(args, "apply", False)
+    actions = []
+    if apply_changes:
+        for r in actionable:
+            if r["status"] == "missing_type" and r.get("inferred_type"):
+                f = vault / r["path"]
+                changed = add_type_to_frontmatter(f, r["inferred_type"], dry_run=False)
+                if changed:
+                    actions.append({"path": r["path"], "action": "added_type",
+                                    "type": r["inferred_type"]})
+            elif r["status"] == "placement_mismatch" and r.get("expected_path"):
+                move = fix_placement(vault, r["path"], r["expected_path"],
+                                     dry_run=False, use_git=True)
+                actions.append({"path": r["path"], **move})
+
+    payload = {"summary": summary, "results": results, "actions": actions,
+               "applied": apply_changes}
+
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
+    else:
+        for status, n in sorted(counts.items()):
+            print(f"  {status:22} {n}", file=sys.stderr)
+        print(f"  {'actionable':22} {summary['actionable']}", file=sys.stderr)
+        if apply_changes and actions:
+            print("Actions applied:", file=sys.stderr)
+            for a in actions:
+                print(f"  {a.get('action','?'):12} {a.get('path','?')}"
+                      f"{' -> ' + a.get('dst','') if a.get('dst') else ''}",
+                      file=sys.stderr)
+        elif not apply_changes and summary["actionable"] > 0:
+            print(f"  ({summary['actionable']} actionable — re-run with --apply to migrate)",
+                  file=sys.stderr)
+
+    # Exit 1 if mismatches remain (CI gate); 0 if all ok or fixes applied
+    sys.exit(1 if (not apply_changes and summary["actionable"] > 0) else 0)
+
+
 def cmd_discover(args):
     from .discovery import discover_all
     vault = _ensure_vault(args.vault)
@@ -1577,6 +1636,13 @@ def main():
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
 
+    p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("--taxonomy", help="Path to types taxonomy YAML (overrides defaults)")
+    p.add_argument("--apply", action="store_true",
+                   help="Apply fixes: add missing types, move misplaced files (uses git mv)")
+    p.add_argument("--json", action="store_true", help="Emit JSON report on stdout")
+
     p = sub.add_parser("layer", help="Classify vault files into layers via taxonomy (classify, resolve)")
     layer_sub = p.add_subparsers(dest="action")
 
@@ -1605,6 +1671,7 @@ def main():
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
             "validate": cmd_validate, "graph-export": cmd_graph_export,
             "validate-handoff": cmd_validate_handoff,
+            "types": cmd_types,
             "layer": cmd_layer}
     cmds[args.command](args)
 
