@@ -118,6 +118,154 @@ SCAN_PREDICATES = [
 ]
 
 
+# --- 5-domande rubric helpers (S492 PBI #1801, founder voice S483) ---
+#
+# Maps the founder's 5 questions to machine-checkable frontmatter fields:
+#   1. A cosa serve?     -> purpose      (non-empty string, >= 10 chars)
+#   2. Come usarlo?      -> when_to_use  (non-empty string, >= 10 chars)
+#   3. Perche?           -> why          (non-empty string, >= 10 chars, references origin)
+#   4. Q&A?              -> qa           (list of {q, a} dicts, >= 1 item; or [] explicit)
+#   5. Contesto/legame?  -> related      (list of paths, >= 1 item; or [] explicit)
+#
+# Heuristic regex zero-deps default. LLM semantic check opt-in via `marginalia ai`.
+# Doctrine: easyway/wiki/guides/governance/wiki-frontmatter-schema.md
+
+_PLACEHOLDER_TOKENS = {
+    "todo", "tbd", "fixme", "xxx", "...", "placeholder",
+    "da completare", "da fare", ">", "|", ">-", "|-",
+}
+
+_MIN_LEN_5D = 10
+
+
+def _strip_yaml_value(v):
+    """Strip YAML-ish quotes/whitespace and return clean str (or '' if not str-like)."""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v.strip().strip("'\"").strip()
+    return str(v).strip()
+
+
+def is_valid_purpose(fm: dict) -> bool:
+    """purpose: non-empty string, >= 10 chars, not placeholder."""
+    val = _strip_yaml_value(fm.get("purpose", ""))
+    if len(val) < _MIN_LEN_5D:
+        return False
+    return val.lower() not in _PLACEHOLDER_TOKENS
+
+
+def is_valid_when_to_use(fm: dict) -> bool:
+    """when_to_use: non-empty string, >= 10 chars, not placeholder."""
+    val = _strip_yaml_value(fm.get("when_to_use", ""))
+    if len(val) < _MIN_LEN_5D:
+        return False
+    return val.lower() not in _PLACEHOLDER_TOKENS
+
+
+def is_valid_why(fm: dict) -> bool:
+    """why: non-empty, >= 10 chars, ideally references origin (Bug/PBI/S<N>/doctrine_principle)."""
+    val = _strip_yaml_value(fm.get("why", ""))
+    if len(val) < _MIN_LEN_5D:
+        return False
+    if val.lower() in _PLACEHOLDER_TOKENS:
+        return False
+    return True
+
+
+def is_valid_qa(fm: dict) -> bool:
+    """qa: presence check — list of {q,a} dicts, explicit [] for None-applicable, or string marker.
+
+    Marginalia's minimal YAML parser collapses nested dict-in-list to string form
+    like '[q: "..."]'. We accept any non-trivial marker as evidence of intent.
+    Deeper semantic validation is opt-in via `marginalia ai rubric --suggest`.
+    """
+    raw = fm.get("qa", None)
+    if raw is None:
+        return False
+    if isinstance(raw, list):
+        if len(raw) == 0:
+            return True  # explicit empty list permitted (warn elsewhere)
+        return all(
+            isinstance(item, dict) and "q" in item and "a" in item
+            and _strip_yaml_value(item.get("q", "")) and _strip_yaml_value(item.get("a", ""))
+            for item in raw
+        )
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s in ("", "[]", "[ ]"):
+            return s in ("[]", "[ ]")  # explicit [] ok, empty string fail
+        # Minimal-parser truncation: qa: present with non-empty content marker
+        return "q:" in s or s.startswith("-") or s.startswith("[")
+    return False
+
+
+def is_valid_related(fm: dict) -> bool:
+    """related: list of paths (>=1 recommended), or explicit [] permitted."""
+    raw = fm.get("related", None)
+    if raw is None:
+        return False
+    if isinstance(raw, list):
+        if len(raw) == 0:
+            return True  # standalone explicit ok
+        return all(isinstance(p, str) and _strip_yaml_value(p) for p in raw)
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s in ("[]", "[ ]"):
+            return True
+        return "[" in s or s.startswith("-") or "/" in s
+    return False
+
+
+RUBRIC_5D_PREDICATES = [
+    {
+        "id": "5D-01",
+        "field": "purpose",
+        "description": "purpose: 1 frase operativa (>=10 chars, no placeholder)",
+        "check": lambda fm: is_valid_purpose(fm),
+    },
+    {
+        "id": "5D-02",
+        "field": "when_to_use",
+        "description": "when_to_use: trigger concreto (>=10 chars, no placeholder)",
+        "check": lambda fm: is_valid_when_to_use(fm),
+    },
+    {
+        "id": "5D-03",
+        "field": "why",
+        "description": "why: rationale + origine Bug/PBI/S<N>/doctrine_principle (>=10 chars)",
+        "check": lambda fm: is_valid_why(fm),
+    },
+    {
+        "id": "5D-04",
+        "field": "qa",
+        "description": "qa: lista [{q,a}] o [] esplicito",
+        "check": lambda fm: is_valid_qa(fm),
+    },
+    {
+        "id": "5D-05",
+        "field": "related",
+        "description": "related: lista path o [] esplicito",
+        "check": lambda fm: is_valid_related(fm),
+    },
+]
+
+
+def validate_5d_rubric(fm: dict) -> dict:
+    """Validate frontmatter against 5-domande rubric. Returns report dict.
+
+    Returns:
+      {
+        "valid": bool,
+        "confidence": float (0-1),
+        "passed": [{id, field, description}, ...],
+        "failed": [{id, field, description}, ...],
+        "total_checks": 5,
+      }
+    """
+    return _run_predicates(fm or {}, RUBRIC_5D_PREDICATES)
+
+
 # --- Validator engine ---
 
 def _run_predicates(data: dict, predicates: list[dict]) -> dict:
@@ -132,6 +280,8 @@ def _run_predicates(data: dict, predicates: list[dict]) -> dict:
             result = False
 
         entry = {"id": pred["id"], "description": pred["description"]}
+        if "field" in pred:
+            entry["field"] = pred["field"]
         if result:
             passed.append(entry)
         else:

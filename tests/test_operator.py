@@ -44,7 +44,7 @@ def test_quickstart_blueprint_recommends_metadata_catalog(tmp_path):
     assert blueprint["summary"]["scan_issues"] >= 2
     commands = [step["command"] for step in blueprint["recommended_flow"]]
     assert "marginalia tags <vault>" in commands
-    assert any(issue["type"] == "missing_domain_tag" for issue in blueprint["top_issues"])
+    assert any(issue["type"] in ("missing_domain_tag", "missing_required_tag") for issue in blueprint["top_issues"])
 
 
 def test_quickstart_materialization_writes_json_and_markdown(tmp_path):

@@ -62,17 +62,30 @@ def giro0_inventory(vault_path):
 
 # --- Giro 1: Frontmatter ---
 
-def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True):
+def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True, ai_mode=False):
     """Add missing frontmatter to files that don't have it.
 
     Strategy:
-    - Files with NO frontmatter: add minimal --- title/tags --- block
-    - Title is derived from filename (kebab-case → Title Case)
-    - Tags left empty for user to fill
+    - Files with NO frontmatter: try LLM (brain.generate_frontmatter) first
+    - If LLM available → title, tags, status, summary from content analysis
+    - If LLM unavailable → derive title from filename (kebab-case → Title Case)
+    - Tags left empty for user to fill when LLM is unavailable
     """
     required_fields = required_fields or ["title", "tags"]
     base = Path(vault_path)
     fixes = []
+
+    # Check LLM availability once (outside loop), only if --ai flag is set
+    llm_available = False
+    if ai_mode:
+        try:
+            from .brain import generate_frontmatter, is_available
+            if is_available():
+                llm_available = True
+            else:
+                print("WARNING: --ai flag set but no API key found. Using deterministic mode.", flush=True)
+        except Exception:
+            print("WARNING: --ai flag set but brain module failed to load. Using deterministic mode.", flush=True)
 
     for f in inventory["md_files"]:
         rel = str(f.relative_to(base)).replace("\\", "/")
@@ -83,15 +96,33 @@ def giro1_frontmatter(vault_path, inventory, required_fields=None, dry_run=True)
         fm = parse_frontmatter(content)
 
         if fm is None:
-            # Generate frontmatter from filename
+            # Strategy: try LLM first, fall back to filename derivation
             stem = f.stem
             title = stem.replace("-", " ").replace("_", " ").title()
-            new_fm = f"---\ntitle: \"{title}\"\ntags: []\n---\n\n"
-            new_content = new_fm + content
+            llm_fm = None
+            if llm_available:
+                try:
+                    llm_fm = generate_frontmatter(str(f))
+                except Exception:
+                    pass
+
+            if llm_fm:
+                new_content = llm_fm + "\n\n" + content
+                try:
+                    fm_parsed = parse_frontmatter(new_content)
+                    if fm_parsed and fm_parsed.get("title"):
+                        title = fm_parsed.get("title")
+                except Exception:
+                    pass
+                action = "add_frontmatter_llm"
+            else:
+                new_fm = f"---\ntitle: \"{title}\"\ntags: []\n---\n\n"
+                new_content = new_fm + content
+                action = "add_frontmatter"
 
             fixes.append({
                 "file": rel,
-                "action": "add_frontmatter",
+                "action": action,
                 "title": title,
             })
 
@@ -780,7 +811,7 @@ def giro7_frontmatter_quality(vault_path, inventory, dry_run=True):
 # --- Orchestrator: run all giri ---
 
 def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
-            giri=None, only_files=None):
+            giri=None, only_files=None, ai_mode=False):
     """Run the multi-pass fix pipeline.
 
     Args:
@@ -832,7 +863,7 @@ def fix_all(vault_path, dry_run=True, taxonomy_path=None, required_fields=None,
     total_fixes = 0
 
     if 1 in giri:
-        g1 = giro1_frontmatter(vault_path, inventory, required_fields=required_fields, dry_run=dry_run)
+        g1 = giro1_frontmatter(vault_path, inventory, required_fields=required_fields, dry_run=dry_run, ai_mode=ai_mode)
         results["giri"]["1_frontmatter"] = {"fixes": len(g1), "details": g1}
         total_fixes += len(g1)
         # Re-inventory after frontmatter changes (giro 2 needs fresh FM data)

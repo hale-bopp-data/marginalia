@@ -35,6 +35,23 @@ DEFAULTS: dict = {
     "heading": "## See also",
     "min_len": 3,
     "max_terms": 500,
+    # Scanner checks — default = legacy behavior (domain/ required, rag_categories valid)
+    # Set to empty list/False in marginalia.yaml to disable for generic vaults
+    "required_tags": ["domain/"],
+    "required_fields": ["title", "tags"],
+    "valid_rag_categories": [
+        "infra", "git", "governance", "architecture", "security",
+        "operations", "history", "agents", "data", "context",
+        "mcp", "external", "emergency", "onboarding", "edge_case",
+    ],
+    "valid_statuses": ["active", "draft", "deprecated", "planned", "archived", "superseded"],
+    "validate_answers": True,
+    # 5-domande rubric (S492 PBI #1801, founder voice S483).
+    # When enabled, scanner validates 5 machine-checkable frontmatter fields.
+    # Doctrine: easyway/wiki/guides/governance/wiki-frontmatter-schema.md
+    "validate_5d_rubric": False,
+    "rubric_5d_required_fields": ["purpose", "when_to_use", "why", "qa", "related"],
+    "rubric_5d_optional_fields": ["audience", "last_review"],
 }
 
 CONFIG_FILENAMES = ("marginalia.yaml", "marginalia.yml", ".marginalia.yaml", ".marginalia.yml")

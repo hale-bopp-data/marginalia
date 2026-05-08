@@ -10,8 +10,11 @@ from . import __version__
 from .scanner import (find_md_files, scan_file, build_file_index, build_graph,
                       tag_issues, untag_issues, REVIEW_TAG, build_tag_dictionary,
                       build_tag_inventory, build_synonym_map_from_inventory,
-                      rationalize_tags, parse_frontmatter)
+                      rationalize_tags, parse_frontmatter, check_layer_budget,
+                      check_nonna_standard)
 from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
+from .types import (load_types_taxonomy, discover_misplaced,
+                    add_type_to_frontmatter, fix_placement, summarize as types_summarize)
 from .obsidian import check_all as obsidian_check_all
 from .config import load_config, find_config, merge_cli
 from .operator import (
@@ -70,7 +73,37 @@ def cmd_scan(args):
             vaults = _ensure_vaults(cfg_vaults)
 
     required = args.require.split(",") if args.require else ["title", "tags"]
+    scanner_config = {
+        "required_tags": cfg.get("required_tags", []),
+        "valid_rag_categories": cfg.get("valid_rag_categories", []),
+        "validate_answers": cfg.get("validate_answers", False),
+        "valid_statuses": cfg.get("valid_statuses", []),
+        "validate_5d_rubric": cfg.get("validate_5d_rubric", False),
+    }
+    # 5-domande rubric: CLI --rubric 5d-ew or --report-5domande activates check
+    # (regardless of marginalia.yaml setting). PBI #1801, doctrine: wiki-frontmatter-schema.md
+    if getattr(args, "rubric", None) == "5d-ew" or getattr(args, "report_5domande", False):
+        scanner_config["validate_5d_rubric"] = True
+
+    # Layer budget enforcement (Giro 6 — Matrioska)
+    strict_layer_violations = 0
+    if args.strict_layer and args.taxonomy:
+        from . import layer as _layer
+        taxonomy = _layer.load_taxonomy(args.taxonomy)
+        budgets = {name: spec.get("budget", {}) for name, spec in taxonomy.items() if spec.get("budget")}
+        if budgets:
+            result = _layer.classify_vault(vaults[0], args.taxonomy)
+            layer_map = {}
+            for lname, linfo in result["classification"].items():
+                for f in linfo.get("files", []):
+                    layer_map[f["path"]] = lname
+            scanner_config["layer_budgets"] = budgets
+            scanner_config["_layer_map"] = layer_map
+    elif args.strict_layer and not args.taxonomy:
+        print("ERROR: --strict-layer requires --taxonomy <file>", file=sys.stderr)
+        sys.exit(2)
     all_issues = []
+    nonna_scores = {}  # rel_path -> (score, checks)
 
     # For single vault, use existing graph; for multi, scan each separately
     primary_vault = vaults[0]
@@ -87,7 +120,18 @@ def cmd_scan(args):
                 break
             except ValueError:
                 continue
-        all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required))
+        all_issues.extend(scan_file(f, owning_vault, file_index=file_index, required_fields=required, scanner_config=scanner_config))
+        # Giro 6: layer budget check (Matrioska) + Nonna Standard
+        if scanner_config.get("_layer_map") or args.standard == "nonna":
+            content = f.read_text(encoding="utf-8", errors="replace")
+            rel = str(f.relative_to(primary_vault)).replace("\\", "/")
+            if scanner_config.get("_layer_map"):
+                budget_issues = check_layer_budget(rel, content, scanner_config)
+                all_issues.extend(budget_issues)
+                strict_layer_violations += len(budget_issues)
+            if args.standard == "nonna" and ("guides/" in rel or "Runbooks/" in rel or "standards/" in rel):
+                score, checks = check_nonna_standard(content, rel)
+                nonna_scores[rel] = (score, checks)
 
     graph = build_graph(primary_vault, file_index)
     by_type = {}
@@ -103,6 +147,50 @@ def cmd_scan(args):
         "issues": all_issues, "graph": graph,
         "status": "clean" if not all_issues else "issues_found",
     }
+
+    # --report-5domande: aggregate compliance per folder + missing-field distribution
+    # PBI #1801, doctrine: easyway/wiki/guides/governance/wiki-frontmatter-schema.md
+    if getattr(args, "report_5domande", False):
+        rubric_fields = ["purpose", "when_to_use", "why", "qa", "related"]
+        per_folder = {}
+        per_field_missing = {f: 0 for f in rubric_fields}
+        files_by_folder = {}
+        for f in md_files:
+            try:
+                rel = str(f.relative_to(vaults[0])).replace("\\", "/")
+            except ValueError:
+                rel = str(f)
+            folder = "/".join(rel.split("/")[:-1]) or "."
+            files_by_folder.setdefault(folder, set()).add(rel)
+        violators_by_file = {}
+        for issue in all_issues:
+            if issue.get("type") == "missing_5d_field":
+                file_rel = issue["file"]
+                for field in rubric_fields:
+                    if f"field: {field})" in issue.get("description", ""):
+                        violators_by_file.setdefault(file_rel, set()).add(field)
+                        per_field_missing[field] += 1
+                        break
+        for folder, files in files_by_folder.items():
+            total = len(files)
+            non_compliant = sum(1 for f in files if f in violators_by_file)
+            compliant = total - non_compliant
+            pct = round(100 * compliant / total, 1) if total else 0.0
+            per_folder[folder] = {
+                "files_scanned": total,
+                "compliant_files": compliant,
+                "compliance_pct": pct,
+                "non_compliant_files": non_compliant,
+            }
+        result["report_5domande"] = {
+            "rubric": "5d-ew",
+            "metric": "wiki_5domande_compliance_pct",
+            "per_folder": per_folder,
+            "per_field_missing": per_field_missing,
+            "violators_by_file": {f: sorted(list(s)) for f, s in violators_by_file.items()},
+            "doctrine": "easyway/wiki/guides/governance/wiki-frontmatter-schema.md",
+        }
+
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     else:
@@ -150,6 +238,55 @@ def cmd_scan(args):
                 print(f"\n--- STRICT MODE FAILED ---")
                 print(f"  missing_domain_tag: {domain_issues} (threshold: {strict_threshold})")
                 print(f"  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
+            sys.exit(1)
+
+    # --strict-layer: CI guardrail — fail if any layer budget violated
+    if args.strict_layer:
+        if strict_layer_violations > 0:
+            if not args.json:
+                print(f"\n--- STRICT LAYER FAILED ---")
+                print(f"  layer_budget violations: {strict_layer_violations}")
+                print(f"  Fix: reduce file size/pointer density or update taxonomy budget")
+            sys.exit(1)
+        elif not args.json:
+            print(f"\n--- STRICT LAYER PASSED ---")
+            print(f"  All files within layer budgets.")
+
+    # --strict-quality: CI guardrail — fail if placeholder summaries, stale drafts, or empty fields
+    if args.strict_quality:
+        quality_issues = by_type.get("summary_todo", 0) + by_type.get("stale_draft", 0) + by_type.get("empty_required_fields", 0)
+        if quality_issues > 0:
+            if not args.json:
+                print(f"\n--- STRICT QUALITY FAILED ---")
+                print(f"  Placeholder/stale/empty issues: {quality_issues}")
+                print(f"  Fix: marginalia fix <vault> --giri 7 --apply")
+            sys.exit(1)
+        elif not args.json:
+            print(f"\n--- STRICT QUALITY PASSED ---")
+            print(f"  No placeholder summaries, stale drafts, or empty fields.")
+
+    # Nonna Standard: report scores per guide
+    if args.standard == "nonna" and nonna_scores:
+        if not args.json:
+            print(f"\n--- Nonna Standard ---")
+            below_threshold = []
+            for path, (score, checks) in sorted(nonna_scores.items()):
+                bar = "#" * score + "-" * (6 - score)
+                print(f"  [{bar}] {score}/6 {path}")
+                threshold = args.strict_nonna if args.strict_nonna is not None else 4
+                if score < threshold:
+                    below_threshold.append((path, score, checks))
+            if below_threshold:
+                print(f"\n  Below threshold ({threshold}/6):")
+                for path, score, checks in below_threshold[:10]:
+                    failed = [c["label"] for c in checks if not c["passed"]]
+                    print(f"    {path} ({score}/6): missing {', '.join(failed[:3])}")
+        nonna_below = sum(1 for s, _ in nonna_scores.values() if s < (args.strict_nonna or 4))
+        if args.strict_nonna is not None and nonna_below > 0:
+            if not args.json:
+                print(f"\n--- STRICT NONNA FAILED ---")
+                print(f"  {nonna_below} guide(s) below threshold ({args.strict_nonna}/6)")
+                print(f"  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
             sys.exit(1)
 
     # Obsidian tip (always, if issues found and not JSON)
@@ -637,7 +774,7 @@ def cmd_fix(args):
     only_files = args.files.split(",") if args.files else None
     result = fix_all(vault, dry_run=not args.apply, taxonomy_path=args.taxonomy,
                      required_fields=args.require.split(",") if args.require else None,
-                     giri=giri, only_files=only_files)
+                     giri=giri, only_files=only_files, ai_mode=args.ai)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     else:
@@ -707,6 +844,63 @@ def cmd_graph_export(args):
         print(f"  Written to: {out_path}", file=sys.stderr)
 
     sys.exit(0)
+
+
+def cmd_types(args):
+    """Doc placement enforcement — discover misplaced files, optionally migrate (PBI #1858)."""
+    vault = _ensure_vault(args.vault)
+    types_map = load_types_taxonomy(getattr(args, "taxonomy", None))
+
+    print(f"marginalia {__version__} -- Types (placement enforcement)", file=sys.stderr)
+    print(f"Vault: {vault}", file=sys.stderr)
+    print(f"Taxonomy: {len(types_map)} types loaded "
+          f"({'YAML override' if getattr(args, 'taxonomy', None) else 'defaults'})",
+          file=sys.stderr)
+
+    results = discover_misplaced(vault, types_map=types_map)
+    counts = types_summarize(results)
+    actionable = [r for r in results
+                  if r["status"] in ("placement_mismatch", "missing_type")
+                  and (r.get("expected_path") or r.get("inferred_type"))]
+
+    summary = {"counts": counts, "total": len(results), "actionable": len(actionable)}
+
+    apply_changes = getattr(args, "apply", False)
+    actions = []
+    if apply_changes:
+        for r in actionable:
+            if r["status"] == "missing_type" and r.get("inferred_type"):
+                f = vault / r["path"]
+                changed = add_type_to_frontmatter(f, r["inferred_type"], dry_run=False)
+                if changed:
+                    actions.append({"path": r["path"], "action": "added_type",
+                                    "type": r["inferred_type"]})
+            elif r["status"] == "placement_mismatch" and r.get("expected_path"):
+                move = fix_placement(vault, r["path"], r["expected_path"],
+                                     dry_run=False, use_git=True)
+                actions.append({"path": r["path"], **move})
+
+    payload = {"summary": summary, "results": results, "actions": actions,
+               "applied": apply_changes}
+
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
+    else:
+        for status, n in sorted(counts.items()):
+            print(f"  {status:22} {n}", file=sys.stderr)
+        print(f"  {'actionable':22} {summary['actionable']}", file=sys.stderr)
+        if apply_changes and actions:
+            print("Actions applied:", file=sys.stderr)
+            for a in actions:
+                print(f"  {a.get('action','?'):12} {a.get('path','?')}"
+                      f"{' -> ' + a.get('dst','') if a.get('dst') else ''}",
+                      file=sys.stderr)
+        elif not apply_changes and summary["actionable"] > 0:
+            print(f"  ({summary['actionable']} actionable — re-run with --apply to migrate)",
+                  file=sys.stderr)
+
+    # Exit 1 if mismatches remain (CI gate); 0 if all ok or fixes applied
+    sys.exit(1 if (not apply_changes and summary["actionable"] > 0) else 0)
 
 
 def cmd_discover(args):
@@ -1114,6 +1308,30 @@ def cmd_validate(args):
     sys.exit(0 if report["valid"] else 1)
 
 
+def cmd_validate_handoff(args):
+    from .handoff_validator import validate_handoff
+    report = validate_handoff(args.file)
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
+    else:
+        status = "VALID" if report["valid"] else "INVALID"
+        print(f"marginalia validate-handoff — {status}")
+        print(f"  File: {args.file}")
+        print(f"  Sections: {len(report['sections_found'])}/{report['sections_expected']}")
+        if report["errors"]:
+            print(f"\n  Errors:")
+            for e in report["errors"]:
+                print(f"    [{e['section']}] {e['reason']}")
+        if report["warnings"]:
+            print(f"\n  Warnings:")
+            for w in report["warnings"]:
+                print(f"    [{w['section']}] {w['detail']}")
+        if report["valid"]:
+            print(f"\n  All 9 sections present and valid.")
+    sys.exit(0 if report["valid"] else 1)
+
+
 def cmd_catalog(args):
     catalog = {
         "action": "marginalia-catalog",
@@ -1131,7 +1349,14 @@ def cmd_catalog(args):
 def cmd_quickstart(args):
     vault = _ensure_vault(args.vault)
     required = args.require.split(",") if args.require else ["title", "tags"]
-    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth)
+    cfg = _load_cfg(args, vault_hint=vault)
+    scanner_config = {
+        "required_tags": cfg.get("required_tags", []),
+        "valid_rag_categories": cfg.get("valid_rag_categories", []),
+        "validate_answers": cfg.get("validate_answers", False),
+        "valid_statuses": cfg.get("valid_statuses", []),
+    }
+    blueprint = build_quickstart_blueprint(vault, required_fields=required, max_depth=args.max_depth, scanner_config=scanner_config)
 
     if args.write:
         output_dir = args.output or (vault / "out" / "marginalia-quickstart")
@@ -1191,6 +1416,63 @@ def cmd_ai(args):
     sys.exit(0)
 
 
+def cmd_layer(args):
+    from . import layer
+    if args.action == "classify":
+        vault = _ensure_vault(args.vault)
+        result = layer.classify_vault(vault, args.taxonomy)
+        if args.out:
+            Path(args.out).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Layer classification written to {args.out}")
+        elif args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            _print_layer_classify(result)
+    elif args.action == "resolve":
+        vault = _ensure_vault(args.vault)
+        result = layer.resolve_query(args.query, vault, args.taxonomy, top_k=args.top_k)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            _print_layer_resolve(result)
+    else:
+        print("Usage: marginalia layer {classify, resolve} ...", file=sys.stderr)
+    sys.exit(0)
+
+
+def _print_layer_classify(result):
+    stats = result["stats"]
+    classification = result["classification"]
+    print(f"marginalia layer classify — {result['vault']}")
+    print(f"Files: {stats['total_files']}  Classified: {stats['classified']}  Unclassified: {stats['unclassified']}")
+    print(f"Coverage: {stats['coverage']}%\n")
+    for name in sorted(classification.keys()):
+        info = classification[name]
+        print(f"  {name} ({info['label']}): {info['count']} files")
+        if info.get("description"):
+            print(f"    {info['description']}")
+    if result["unclassified"]:
+        print(f"\n  Unclassified ({len(result['unclassified'])}):")
+        for item in result["unclassified"][:5]:
+            print(f"    {item['path']} ({item['reason']})")
+        if len(result["unclassified"]) > 5:
+            print(f"    ... and {len(result['unclassified']) - 5} more")
+    print(f"\nMethods: {stats['by_method']}")
+
+
+def _print_layer_resolve(result):
+    print(f"Query: {result['query']}")
+    for layer_name in result["suggested_order"]:
+        files = result["results_by_layer"].get(layer_name, [])
+        if not files:
+            continue
+        label = layer_name if layer_name != "_unclassified" else "?? (unclassified)"
+        print(f"\n  {label}:")
+        for f in files[:5]:
+            title = f.get("title", "") or f["path"]
+            print(f"    {title}  (score={f['score']})")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="marginalia",
         description="marginalia -- Markdown vault scanner, fixer, and AI brain for Obsidian")
@@ -1205,6 +1487,13 @@ def main():
     p.add_argument("--require", help="Required frontmatter fields (comma-separated)")
     p.add_argument("--tag", action="store_true", help="Add quality/review-needed tag to files with issues (for Obsidian filtering)")
     p.add_argument("--strict", type=int, metavar="N", help="Exit code 1 if missing_domain_tag > N (CI guardrail, e.g. --strict 0)")
+    p.add_argument("--strict-layer", action="store_true", help="Enforce layer budget rules (requires --taxonomy)")
+    p.add_argument("--strict-quality", action="store_true", help="Exit 1 if any placeholder summary, stale draft, or empty required field")
+    p.add_argument("--standard", choices=["nonna"], help="Check guide compliance against a standard (e.g. nonna)")
+    p.add_argument("--strict-nonna", type=int, metavar="N", help="Exit 1 if Nonna Standard score < N (default: 4)")
+    p.add_argument("--taxonomy", help="Taxonomy YAML path for layer classification + budget rules")
+    p.add_argument("--rubric", choices=["5d-ew"], help="Apply named rubric (5d-ew = 5-domande wiki founder, S492 PBI #1801)")
+    p.add_argument("--report-5domande", action="store_true", help="Output compliance report per folder (compliance %% + missing-field distribution)")
 
     p = sub.add_parser("tags", help="Tag Dictionary (L0): inventory all tags, detect synonyms, write dictionary")
     p.add_argument("vault", nargs="?", default=".")
@@ -1231,6 +1520,7 @@ def main():
     p.add_argument("--require", help="Required frontmatter fields")
     p.add_argument("--giri", help="Which giri to run (e.g. 1,2,3)")
     p.add_argument("--files", help="Comma-separated list of files to process (delta mode). Only these files will be fixed.")
+    p.add_argument("--ai", action="store_true", help="Use LLM for frontmatter generation in Giro 1 (requires API key)")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("fix-tags", help="Migrate flat tags to namespaced")
@@ -1301,7 +1591,7 @@ def main():
     pc.add_argument("--after", required=True, help="Path to after snapshot JSON")
     pc.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("closeout", help="Session closeout: collect git data, generate reports, write files")
+    p = sub.add_parser("closeout", help="[EasyWay] Session closeout: collect git data, generate reports, write files")
     p.add_argument("session_number", type=int, help="Session number (e.g. 103)")
     p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
     p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
@@ -1311,7 +1601,7 @@ def main():
     p.add_argument("--sessions-history", help="Path to sessions-history.md")
     p.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("session-close", help="Full 9-point session closeout orchestrator (wraps closeout + checks)")
+    p = sub.add_parser("session-close", help="[EasyWay] Full 9-point session closeout orchestrator (wraps closeout + checks)")
     p.add_argument("session_number", type=int, help="Session number (e.g. 141)")
     p.add_argument("--title", help="Session title (auto-generated from commits if omitted)")
     p.add_argument("--base", help="Base directory of polyrepo (default: cwd)")
@@ -1324,6 +1614,10 @@ def main():
     p = sub.add_parser("validate", help="Validate a JSON output against acceptance criteria (Evaluator pattern)")
     p.add_argument("input", help="Path to JSON file or - for stdin")
     p.add_argument("--type", choices=["closeout", "scan"], default="closeout", help="Validation type (default: closeout)")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("validate-handoff", help="Validate a handoff file against v2 9-section declarative format")
+    p.add_argument("file", help="Path to handoff .md file")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("ai", help="AI-powered analysis (OpenRouter/OpenAI/Ollama)")
@@ -1342,6 +1636,29 @@ def main():
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
 
+    p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("--taxonomy", help="Path to types taxonomy YAML (overrides defaults)")
+    p.add_argument("--apply", action="store_true",
+                   help="Apply fixes: add missing types, move misplaced files (uses git mv)")
+    p.add_argument("--json", action="store_true", help="Emit JSON report on stdout")
+
+    p = sub.add_parser("layer", help="Classify vault files into layers via taxonomy (classify, resolve)")
+    layer_sub = p.add_subparsers(dest="action")
+
+    plc = layer_sub.add_parser("classify", help="Classify all files into layers defined by taxonomy YAML")
+    plc.add_argument("vault", nargs="?", default=".")
+    plc.add_argument("--taxonomy", "-t", required=True, help="Path to taxonomy YAML defining layers and rules")
+    plc.add_argument("--out", "-o", help="Output JSON path (default: stdout)")
+    plc.add_argument("--json", action="store_true")
+
+    plr = layer_sub.add_parser("resolve", help="Resolve a query to relevant files grouped by layer")
+    plr.add_argument("query", help="Natural-language query to resolve")
+    plr.add_argument("vault", nargs="?", default=".")
+    plr.add_argument("--taxonomy", "-t", required=True, help="Path to taxonomy YAML defining layers and rules")
+    plr.add_argument("--top-k", type=int, default=5, help="Max results per layer (default: 5)")
+    plr.add_argument("--json", action="store_true")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1352,7 +1669,10 @@ def main():
             "css": cmd_css, "graph": cmd_graph, "catalog": cmd_catalog, "quickstart": cmd_quickstart,
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
-            "validate": cmd_validate, "graph-export": cmd_graph_export}
+            "validate": cmd_validate, "graph-export": cmd_graph_export,
+            "validate-handoff": cmd_validate_handoff,
+            "types": cmd_types,
+            "layer": cmd_layer}
     cmds[args.command](args)
 
 
