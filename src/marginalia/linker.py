@@ -6,7 +6,6 @@ Scoring formula (mirrors wiki-related-links.ps1):
 
 import json
 import math
-import os
 import re
 import shutil
 from datetime import datetime, timezone

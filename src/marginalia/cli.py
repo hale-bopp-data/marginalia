@@ -16,7 +16,7 @@ from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .types import (load_types_taxonomy, discover_misplaced,
                     add_type_to_frontmatter, fix_placement, summarize as types_summarize)
 from .obsidian import check_all as obsidian_check_all
-from .config import load_config, find_config, merge_cli
+from .config import load_config
 from .operator import (
     build_quickstart_blueprint,
     get_catalog,
@@ -224,7 +224,7 @@ def cmd_scan(args):
             result["tag_result"] = tag_result
             print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
         else:
-            print(f"\n--- Tagged for review ---")
+            print("\n--- Tagged for review ---")
             print(f"  Files tagged:  {tag_result['tagged']}")
             print(f"  Already tagged: {tag_result['already']}")
             print(f"  Skipped:       {tag_result['skipped']}")
@@ -235,40 +235,40 @@ def cmd_scan(args):
         domain_issues = by_type.get("missing_domain_tag", 0)
         if domain_issues > strict_threshold:
             if not args.json:
-                print(f"\n--- STRICT MODE FAILED ---")
+                print("\n--- STRICT MODE FAILED ---")
                 print(f"  missing_domain_tag: {domain_issues} (threshold: {strict_threshold})")
-                print(f"  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
+                print("  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
             sys.exit(1)
 
     # --strict-layer: CI guardrail — fail if any layer budget violated
     if args.strict_layer:
         if strict_layer_violations > 0:
             if not args.json:
-                print(f"\n--- STRICT LAYER FAILED ---")
+                print("\n--- STRICT LAYER FAILED ---")
                 print(f"  layer_budget violations: {strict_layer_violations}")
-                print(f"  Fix: reduce file size/pointer density or update taxonomy budget")
+                print("  Fix: reduce file size/pointer density or update taxonomy budget")
             sys.exit(1)
         elif not args.json:
-            print(f"\n--- STRICT LAYER PASSED ---")
-            print(f"  All files within layer budgets.")
+            print("\n--- STRICT LAYER PASSED ---")
+            print("  All files within layer budgets.")
 
     # --strict-quality: CI guardrail — fail if placeholder summaries, stale drafts, or empty fields
     if args.strict_quality:
         quality_issues = by_type.get("summary_todo", 0) + by_type.get("stale_draft", 0) + by_type.get("empty_required_fields", 0)
         if quality_issues > 0:
             if not args.json:
-                print(f"\n--- STRICT QUALITY FAILED ---")
+                print("\n--- STRICT QUALITY FAILED ---")
                 print(f"  Placeholder/stale/empty issues: {quality_issues}")
-                print(f"  Fix: marginalia fix <vault> --giri 7 --apply")
+                print("  Fix: marginalia fix <vault> --giri 7 --apply")
             sys.exit(1)
         elif not args.json:
-            print(f"\n--- STRICT QUALITY PASSED ---")
-            print(f"  No placeholder summaries, stale drafts, or empty fields.")
+            print("\n--- STRICT QUALITY PASSED ---")
+            print("  No placeholder summaries, stale drafts, or empty fields.")
 
     # Nonna Standard: report scores per guide
     if args.standard == "nonna" and nonna_scores:
         if not args.json:
-            print(f"\n--- Nonna Standard ---")
+            print("\n--- Nonna Standard ---")
             below_threshold = []
             for path, (score, checks) in sorted(nonna_scores.items()):
                 bar = "#" * score + "-" * (6 - score)
@@ -284,18 +284,18 @@ def cmd_scan(args):
         nonna_below = sum(1 for s, _ in nonna_scores.values() if s < (args.strict_nonna or 4))
         if args.strict_nonna is not None and nonna_below > 0:
             if not args.json:
-                print(f"\n--- STRICT NONNA FAILED ---")
+                print("\n--- STRICT NONNA FAILED ---")
                 print(f"  {nonna_below} guide(s) below threshold ({args.strict_nonna}/6)")
-                print(f"  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
+                print("  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
             sys.exit(1)
 
     # Obsidian tip (always, if issues found and not JSON)
     if all_issues and not args.json:
-        print(f"\n--- Find in Obsidian ---")
+        print("\n--- Find in Obsidian ---")
         print(f"  Search: tag:{REVIEW_TAG}")
         if not getattr(args, "tag", False):
-            print(f"  (run with --tag to auto-tag files with issues)")
-        print(f"  When fixed, run: marginalia untag <vault>")
+            print("  (run with --tag to auto-tag files with issues)")
+        print("  When fixed, run: marginalia untag <vault>")
 
     sys.exit(0 if not all_issues else 1)
 
@@ -323,7 +323,7 @@ def cmd_tags(args):
         # --- Global LLM rationalization: full landscape analysis ---
         print(f"marginalia {__version__} -- Tag Rationalization (LLM Global)\n{'=' * 50}", file=sys.stderr)
         print(f"Vault: {vault}", file=sys.stderr)
-        print(f"Analyzing full tag landscape...\n", file=sys.stderr)
+        print("Analyzing full tag landscape...\n", file=sys.stderr)
 
         result = rationalize_tags(vault, taxonomy_path=taxonomy)
 
@@ -367,17 +367,17 @@ def cmd_tags(args):
             # Proposed YAML
             yml = result.get("proposed_yaml_merges", "")
             if yml:
-                print(f"--- Proposed taxonomy merges (add to taxonomy.yml) ---", file=sys.stderr)
+                print("--- Proposed taxonomy merges (add to taxonomy.yml) ---", file=sys.stderr)
                 print(yml, file=sys.stderr)
 
             if out_path:
                 print(f"\nFull analysis saved to: {out_path}", file=sys.stderr)
 
-            print(f"\nNext steps:", file=sys.stderr)
-            print(f"  1. Review proposals above", file=sys.stderr)
-            print(f"  2. Add accepted merges to taxonomy.yml", file=sys.stderr)
-            print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <yml> --apply", file=sys.stderr)
-            print(f"  4. Run: marginalia fix <vault> --giri 6 --taxonomy <yml> --apply", file=sys.stderr)
+            print("\nNext steps:", file=sys.stderr)
+            print("  1. Review proposals above", file=sys.stderr)
+            print("  2. Add accepted merges to taxonomy.yml", file=sys.stderr)
+            print("  3. Run: marginalia fix-tags <vault> --taxonomy <yml> --apply", file=sys.stderr)
+            print("  4. Run: marginalia fix <vault> --giri 6 --taxonomy <yml> --apply", file=sys.stderr)
         sys.exit(0)
 
     if analyze:
@@ -386,7 +386,7 @@ def cmd_tags(args):
         print(f"Vault: {vault}", file=sys.stderr)
         if taxonomy:
             print(f"Taxonomy: {taxonomy}", file=sys.stderr)
-        print(f"Analyzing pages...\n", file=sys.stderr)
+        print("Analyzing pages...\n", file=sys.stderr)
 
         def _progress(cur, total, name):
             if cur % 10 == 0 or cur == total:
@@ -423,7 +423,7 @@ def cmd_tags(args):
 
             # Show top suggested tags with reasons
             if synonym_map:
-                print(f"\n--- Top suggested tags (with reasoning) ---", file=sys.stderr)
+                print("\n--- Top suggested tags (with reasoning) ---", file=sys.stderr)
                 for entry in synonym_map[:20]:
                     reasons = "; ".join(entry["reasons"][:2]) if entry["reasons"] else "(no reason)"
                     print(f"  {entry['tag']:30s} {entry['count']:3d} pages  |  {reasons[:80]}", file=sys.stderr)
@@ -433,12 +433,12 @@ def cmd_tags(args):
             if out_path:
                 print(f"\nInventory written to: {out_path}", file=sys.stderr)
             else:
-                print(f"\nRun with --out <path> to save inventory", file=sys.stderr)
+                print("\nRun with --out <path> to save inventory", file=sys.stderr)
 
-            print(f"\nNext steps:", file=sys.stderr)
-            print(f"  1. Review inventory: tags with similar reasons = synonyms", file=sys.stderr)
-            print(f"  2. Add merges to taxonomy.yml", file=sys.stderr)
-            print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply", file=sys.stderr)
+            print("\nNext steps:", file=sys.stderr)
+            print("  1. Review inventory: tags with similar reasons = synonyms", file=sys.stderr)
+            print("  2. Add merges to taxonomy.yml", file=sys.stderr)
+            print("  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply", file=sys.stderr)
         sys.exit(0)
 
     # --- Fast mode: read existing frontmatter (no LLM) ---
@@ -517,7 +517,7 @@ def cmd_tags(args):
         # Summary: how much LLM work is eliminated
         remaining = result["flat"] - len(auto_resolved) - len(pattern_merges) - len(prune_candidates)
         if auto_resolved or pattern_merges or prune_candidates:
-            print(f"--- Smart filtering summary ---")
+            print("--- Smart filtering summary ---")
             print(f"  Flat tags:         {result['flat']}")
             print(f"  Auto-resolved:     {len(auto_resolved)}  (apply with --auto-resolve)")
             print(f"  Pattern merges:    {len(pattern_merges)}  (apply with --auto-resolve)")
@@ -552,17 +552,17 @@ def cmd_tags(args):
             except Exception:
                 pass
         pct = round(no_domain / max(active_files, 1) * 100)
-        print(f"--- RAG coverage ---")
+        print("--- RAG coverage ---")
         print(f"  Files without domain/ tag: {no_domain}/{active_files} ({pct}%)")
         if pct > 20:
             print(f"  WARNING: {pct}% of files invisible to RAG domain routing")
         print()
 
-        print(f"For LLM-powered analysis with reasoning: marginalia tags <vault> --analyze")
-        print(f"\nNext steps:")
-        print(f"  1. Review flat tags and synonym candidates above")
-        print(f"  2. Add merges to taxonomy.yml")
-        print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply")
+        print("For LLM-powered analysis with reasoning: marginalia tags <vault> --analyze")
+        print("\nNext steps:")
+        print("  1. Review flat tags and synonym candidates above")
+        print("  2. Add merges to taxonomy.yml")
+        print("  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply")
     sys.exit(0)
 
 
@@ -1331,15 +1331,15 @@ def cmd_validate_handoff(args):
         print(f"  File: {args.file}")
         print(f"  Sections: {len(report['sections_found'])}/{report['sections_expected']}")
         if report["errors"]:
-            print(f"\n  Errors:")
+            print("\n  Errors:")
             for e in report["errors"]:
                 print(f"    [{e['section']}] {e['reason']}")
         if report["warnings"]:
-            print(f"\n  Warnings:")
+            print("\n  Warnings:")
             for w in report["warnings"]:
                 print(f"    [{w['section']}] {w['detail']}")
         if report["valid"]:
-            print(f"\n  All 9 sections present and valid.")
+            print("\n  All 9 sections present and valid.")
     sys.exit(0 if report["valid"] else 1)
 
 

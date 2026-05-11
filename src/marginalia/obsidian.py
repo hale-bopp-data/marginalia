@@ -1,11 +1,10 @@
 """Obsidian-specific vault health checks."""
 
-import os
 import re
 import subprocess
 from pathlib import Path
 
-from .scanner import find_md_files, parse_frontmatter, build_file_index
+from .scanner import find_md_files, build_file_index
 
 
 def check_obsidian_in_git(vault_path):

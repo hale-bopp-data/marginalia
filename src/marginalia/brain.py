@@ -105,7 +105,7 @@ def suggest_tags_explained(filepath, existing_tags=None, taxonomy_hint=None, tax
 
     tax_values = ""
     if taxonomy_values:
-        tax_values = f"\nKnown canonical values per namespace:\n"
+        tax_values = "\nKnown canonical values per namespace:\n"
         for ns, vals in taxonomy_values.items():
             tax_values += f"  {ns}/: {', '.join(vals)}\n"
 
