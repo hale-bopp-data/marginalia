@@ -25,16 +25,26 @@ from .canonical import build_canonical_sources
 
 
 def export_wiki_graph(vault_path, *, min_shared_tags=2, top_k_similar=5,
-                      min_similarity=0.35, max_affinity=50, max_bridges=20):
+                      min_similarity=0.35, max_affinity=50, max_bridges=20,
+                      ew_aware=False, external_linkers=None, vault_root_prefix=None):
     """Build a consolidated wiki graph combining all Marginalia relationship layers.
 
     Returns a dict ready to be serialized as wiki-graph.json.
+
+    PBI #1966 — When ew_aware=True, link extraction also covers backtick code paths
+    and frontmatter YAML link keys (related/superseded_by/see_also/parent/children/documents).
+    external_linkers: paths to files/dirs outside the vault that may link in.
+    vault_root_prefix: workspace-root prefix to strip from absolute paths.
     """
     base = Path(vault_path)
     file_index = build_file_index(base)
 
-    # Layer 1: Link graph (explicit markdown + wikilinks)
-    graph_data = build_graph(vault_path, file_index=file_index)
+    # Layer 1: Link graph (explicit markdown + wikilinks; EW-aware extras when enabled)
+    graph_data = build_graph(
+        vault_path, file_index=file_index,
+        ew_aware=ew_aware, external_linkers=external_linkers,
+        vault_root_prefix=vault_root_prefix,
+    )
     link_graph = graph_data.get("link_graph", {})
 
     # Build backlinks (reverse index)

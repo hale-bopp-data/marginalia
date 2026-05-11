@@ -820,11 +820,15 @@ def cmd_graph_export(args):
     print(f"marginalia {__version__} -- Graph Export (wiki-graph.json)", file=sys.stderr)
     print(f"Vault: {vault}", file=sys.stderr)
 
+    ew_aware = bool(getattr(args, "ew_aware", False)) and not bool(getattr(args, "no_ew_aware", False))
     result = export_wiki_graph(
         vault,
         min_shared_tags=args.min_tags,
         top_k_similar=args.top_k,
         min_similarity=args.min_similarity,
+        ew_aware=ew_aware,
+        external_linkers=getattr(args, "external_linkers", None),
+        vault_root_prefix=getattr(args, "vault_root_prefix", None),
     )
 
     meta = result["meta"]
@@ -969,7 +973,14 @@ def cmd_css(args):
 
 def cmd_graph(args):
     vault = _ensure_vault(args.vault)
-    print(json.dumps(build_graph(vault), ensure_ascii=False, indent=2), flush=True)
+    ew_aware = bool(getattr(args, "ew_aware", False)) and not bool(getattr(args, "no_ew_aware", False))
+    graph = build_graph(
+        vault,
+        ew_aware=ew_aware,
+        external_linkers=getattr(args, "external_linkers", None),
+        vault_root_prefix=getattr(args, "vault_root_prefix", None),
+    )
+    print(json.dumps(graph, ensure_ascii=False, indent=2), flush=True)
     sys.exit(0)
 
 
@@ -1545,6 +1556,15 @@ def main():
 
     p = sub.add_parser("graph", help="Output relationship graph as JSON")
     p.add_argument("vault", nargs="?", default=".")
+    # PBI #1966 — EW-aware link extraction
+    p.add_argument("--ew-aware", action="store_true",
+                   help="Enable EW-aware link extraction (backtick code path + frontmatter link keys)")
+    p.add_argument("--no-ew-aware", action="store_true",
+                   help="Explicitly disable EW-aware mode (overrides --ew-aware)")
+    p.add_argument("--external-linkers", nargs="+", metavar="PATH",
+                   help="External files/dirs that may link into the vault")
+    p.add_argument("--vault-root-prefix", metavar="STR",
+                   help="Workspace-root prefix to strip from absolute link paths")
 
     p = sub.add_parser("catalog", help="Show the operator-facing capability catalog")
     p.add_argument("--json", action="store_true")
@@ -1635,6 +1655,15 @@ def main():
     p.add_argument("--top-k", type=int, default=5, help="Top-K similar docs per file (default: 5)")
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
+    # PBI #1966 — EW-aware link extraction
+    p.add_argument("--ew-aware", action="store_true",
+                   help="Enable EW-aware link extraction: backtick code path, frontmatter related/superseded_by/see_also/parent/children/documents")
+    p.add_argument("--no-ew-aware", action="store_true",
+                   help="Explicitly disable EW-aware mode (overrides --ew-aware; for edge-case override)")
+    p.add_argument("--external-linkers", nargs="+", metavar="PATH",
+                   help="External files/dirs that may link into the vault (e.g. CLAUDE.md, AGENTS.md). Walked at depth<=3, skips .git/.obsidian/node_modules/_worktrees")
+    p.add_argument("--vault-root-prefix", metavar="STR",
+                   help="Workspace-root prefix to strip from absolute link paths (e.g. 'easyway/wiki/')")
 
     p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
     p.add_argument("vault", nargs="?", default=".")

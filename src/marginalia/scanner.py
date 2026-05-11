@@ -12,6 +12,202 @@ SKIP_FILES = {"CHANGELOG.md", "LICENSE.md"}
 
 FM_REQUIRED_DEFAULT = ["title", "tags"]
 
+# --- EW-aware link extraction (PBI #1966) ---
+# EW workspace uses 5 conventions invisible to default parser:
+#   1. Backtick code path: `easyway/wiki/guides/x.md` (path-like + .md)
+#   2. Frontmatter YAML keys: related, superseded_by, see_also, parent, children, documents
+#   3. External linkers: CLAUDE.md / AGENTS.md / instructions.md outside vault
+#   4. Absolute workspace paths: easyway/wiki/X.md vs vault-relative X.md
+#   5. Wikilinks (already parsed by default)
+# Scope: opt-in via build_graph(ew_aware=True) to avoid regression on generic Obsidian vaults.
+
+EW_FRONTMATTER_LINK_KEYS = (
+    "related", "superseded_by", "see_also", "parent", "children", "documents",
+)
+
+# Regex: `*.md` — single backtick + non-empty body + .md suffix.
+# The `.md` suffix is the discriminator: avoids matching plain words (`marginalia`)
+# while accepting `README.md`, `path/to/file.md`, `easyway/wiki/x.md`.
+# Negative lookbehind/ahead on backtick avoids matching triple-backtick code fences.
+_BACKTICK_CODEPATH_RE = re.compile(
+    r"(?<!`)`([^\s`]+\.md)`(?!`)"
+)
+
+# Compound-word backtick: `feedback_X`, `agent-Y-prd`, `lessons-mcp` — basename refs
+# without explicit .md suffix. Restrictive: requires at least one `_` or `-` separator
+# (compound-word shape) to avoid generic words like `config`, `build`, `run`.
+# Resolved via basename lookup in file_index — no match = silently ignored (zero
+# false-positive orphans, only resolves real vault files referenced in code style).
+_BACKTICK_COMPOUND_WORD_RE = re.compile(
+    r"(?<!`)`([a-zA-Z][a-zA-Z0-9]*[_-][a-zA-Z0-9_-]+)`(?!`)"
+)
+
+_EXTERNAL_LINKER_SKIP_DIRS = SKIP_DIRS | {"_worktrees"}
+
+
+def _extract_backtick_codepath_links(content):
+    """Extract `path/to/file.md`-style references from text (EW convention).
+
+    Returns list of raw target strings as they appear in the document.
+    Restrictive: requires .md suffix; single backticks only (avoids code fences).
+    """
+    return [m.group(1) for m in _BACKTICK_CODEPATH_RE.finditer(content)]
+
+
+def _extract_backtick_compound_word_refs(content):
+    """Extract `compound_word` or `compound-word` backtick refs (no .md suffix).
+
+    Compound = word containing at least one `_` or `-` separator. Used by EW for
+    citing wiki entries by basename (e.g. `feedback_acknowledge_before_workaround`,
+    `agent-cassio`, `lessons-mcp`).
+
+    Caller resolves by basename lookup in file_index; unresolved refs are silently
+    discarded — no false-positive orphans (only confirms what already exists).
+    """
+    return [m.group(1) for m in _BACKTICK_COMPOUND_WORD_RE.finditer(content)]
+
+
+def _extract_frontmatter_links(fm_fields, keys=EW_FRONTMATTER_LINK_KEYS):
+    """Extract path values from EW-style frontmatter link keys.
+
+    parse_frontmatter() stores list values as bracket-syntax strings ("[a, b]").
+    Single scalar values are accepted as-is. Quotes are stripped.
+
+    Returns flat list of raw path strings (unresolved).
+    """
+    if not fm_fields:
+        return []
+    out = []
+    for k in keys:
+        raw = fm_fields.get(k, "")
+        if not raw:
+            continue
+        m = re.match(r"^\s*\[(.*)\]\s*$", raw)
+        if m:
+            for item in m.group(1).split(","):
+                v = item.strip().strip("'\"")
+                if v:
+                    out.append(v)
+        else:
+            v = raw.strip().strip("'\"")
+            if v:
+                out.append(v)
+    return out
+
+
+def _resolve_link_target(link_path, source_file, vault_base, file_index, vault_root_prefix=None):
+    """Resolve a raw link path to a vault-relative posix path, or None.
+
+    Resolution order:
+      1. Strip vault_root_prefix if matches (absolute workspace path → vault-relative).
+      2. Resolve as relative to source_file's directory.
+      3. Resolve as vault-absolute (link path joined with vault_base).
+      4. Lookup by basename in file_index (unique match preferred).
+    """
+    if not link_path:
+        return None
+    if re.match(r"^(https?://|mailto:|#)", link_path):
+        return None
+    candidate = link_path.split("#")[0].strip()
+    if not candidate:
+        return None
+
+    vault_resolved = vault_base.resolve()
+
+    def _to_rel(target_path):
+        try:
+            return str(target_path.relative_to(vault_resolved)).replace("\\", "/")
+        except ValueError:
+            return None
+
+    # 1. Strip vault_root_prefix (e.g. "easyway/wiki/" → "")
+    if vault_root_prefix:
+        prefix = vault_root_prefix.rstrip("/").replace("\\", "/") + "/"
+        norm_candidate = candidate.replace("\\", "/")
+        if norm_candidate.startswith(prefix):
+            stripped = norm_candidate[len(prefix):]
+            try:
+                target = (vault_base / stripped).resolve()
+                if target.exists():
+                    rel = _to_rel(target)
+                    if rel is not None:
+                        return rel
+            except (OSError, ValueError):
+                pass
+
+    # 2. Relative to source file's directory
+    if source_file is not None:
+        try:
+            target = (source_file.parent / candidate).resolve()
+            if target.exists():
+                rel = _to_rel(target)
+                if rel is not None:
+                    return rel
+        except (OSError, ValueError):
+            pass
+
+    # 3. Vault-absolute (path interpreted from vault root)
+    try:
+        target = (vault_base / candidate).resolve()
+        if target.exists():
+            rel = _to_rel(target)
+            if rel is not None:
+                return rel
+    except (OSError, ValueError):
+        pass
+
+    # 4. Basename lookup in file_index
+    if file_index:
+        basename = Path(candidate).name.lower()
+        if not basename.endswith(".md"):
+            basename += ".md"
+        candidates = file_index.get(basename, [])
+        if len(candidates) == 1:
+            return candidates[0][1]
+        # Multi-match: prefer one whose suffix matches the candidate path
+        norm_cand = candidate.replace("\\", "/")
+        for _fp, rel in candidates:
+            if rel.endswith(norm_cand) or norm_cand.endswith(rel):
+                return rel
+
+    return None
+
+
+def _walk_external_linkers(linker_paths, max_depth=3):
+    """Walk external-linker paths (files or directories), return [(Path, content), ...].
+
+    Files: read directly if .md/.markdown. Dirs: capped recursion with skip-list.
+    """
+    found = []
+    for p in linker_paths or []:
+        path = Path(p)
+        if not path.exists():
+            continue
+        if path.is_file():
+            if path.suffix.lower() in (".md", ".markdown"):
+                try:
+                    found.append((path, path.read_text(encoding="utf-8", errors="replace")))
+                except OSError:
+                    pass
+            continue
+        # Directory walk
+        root_depth = len(path.parts)
+        for root, dirs, files in os.walk(path):
+            depth = len(Path(root).parts) - root_depth
+            if depth >= max_depth:
+                dirs[:] = []
+                continue
+            dirs[:] = [d for d in dirs if d not in _EXTERNAL_LINKER_SKIP_DIRS]
+            for fn in files:
+                if not fn.endswith(".md"):
+                    continue
+                fp = Path(root) / fn
+                try:
+                    found.append((fp, fp.read_text(encoding="utf-8", errors="replace")))
+                except OSError:
+                    pass
+    return found
+
 
 def _DEFAULT_SCANNER_CONFIG():
     """Return built-in defaults for backward compatibility when no config provided."""
@@ -1086,8 +1282,20 @@ def untag_issues(vault_path, dry_run=True):
     return cleaned
 
 
-def build_graph(vault_path, file_index=None):
-    """Build the relationship graph: tags, links, topology, clusters."""
+def build_graph(vault_path, file_index=None, *, ew_aware=False,
+                external_linkers=None, vault_root_prefix=None):
+    """Build the relationship graph: tags, links, topology, clusters.
+
+    PBI #1966 — EW-aware mode (opt-in):
+      ew_aware=True extends link extraction with EW workspace conventions:
+        * Backtick code path: `path/to/file.md`
+        * Frontmatter YAML keys: related, superseded_by, see_also, parent, children, documents
+      external_linkers: list of paths (files or directories) outside the vault
+        that may link into it (e.g. CLAUDE.md, AGENTS.md, instructions.md).
+        Their resolved targets are added to inbound counts.
+      vault_root_prefix: workspace-root prefix (e.g. "easyway/wiki/") to strip
+        when resolving absolute workspace paths.
+    """
     base = Path(vault_path)
     if file_index is None:
         file_index = build_file_index(base)
@@ -1115,15 +1323,11 @@ def build_graph(vault_path, file_index=None):
     link_graph = {}
     all_linked_targets = set()
 
-    for filepath in md_files:
-        try:
-            content = filepath.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            continue
-        rel_path = str(filepath.relative_to(base)).replace("\\", "/")
-        outgoing = []
+    def _collect_outgoing(source_file, content, fm=None):
+        """Collect outgoing link targets (resolved to vault-relative paths)."""
+        targets = []
 
-        # Markdown links
+        # 1. Markdown links [text](path.md)
         for m in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", content):
             link_target = m.group(2)
             if re.match(r"^(https?://|mailto:|#)", link_target):
@@ -1131,26 +1335,72 @@ def build_graph(vault_path, file_index=None):
             link_path = link_target.split("#")[0]
             if not link_path:
                 continue
-            resolved = filepath.parent / link_path
-            if resolved.exists():
-                try:
-                    target_rel = str(resolved.resolve().relative_to(base.resolve())).replace("\\", "/")
-                    outgoing.append(target_rel)
-                    all_linked_targets.add(target_rel)
-                except (ValueError, OSError):
-                    pass
+            rel = _resolve_link_target(
+                link_path, source_file, base, file_index,
+                vault_root_prefix=vault_root_prefix,
+            )
+            if rel:
+                targets.append(rel)
 
-        # Wikilinks
+        # 2. Wikilinks [[file]] or [[file|display]]
         for m in re.finditer(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", content):
             wiki_target = m.group(1).strip()
             key = (wiki_target + ".md").lower() if not wiki_target.endswith(".md") else wiki_target.lower()
             candidates = file_index.get(key, [])
             if candidates:
-                outgoing.append(candidates[0][1])
-                all_linked_targets.add(candidates[0][1])
+                targets.append(candidates[0][1])
+
+        # 3. EW-aware: backtick code path + frontmatter YAML keys + compound-word basename
+        if ew_aware:
+            for raw in _extract_backtick_codepath_links(content):
+                rel = _resolve_link_target(
+                    raw, source_file, base, file_index,
+                    vault_root_prefix=vault_root_prefix,
+                )
+                if rel:
+                    targets.append(rel)
+            if fm:
+                for raw in _extract_frontmatter_links(fm):
+                    rel = _resolve_link_target(
+                        raw, source_file, base, file_index,
+                        vault_root_prefix=vault_root_prefix,
+                    )
+                    if rel:
+                        targets.append(rel)
+            # Compound-word backtick basename refs (no .md suffix) → resolve by file_index
+            for word in _extract_backtick_compound_word_refs(content):
+                key = (word + ".md").lower()
+                candidates = file_index.get(key, [])
+                if len(candidates) == 1:
+                    targets.append(candidates[0][1])
+                elif len(candidates) > 1:
+                    # Multi-match: take first deterministically (sorted in build_file_index)
+                    targets.append(candidates[0][1])
+
+        return targets
+
+    for filepath in md_files:
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        rel_path = str(filepath.relative_to(base)).replace("\\", "/")
+        fm = all_files_fm.get(rel_path)
+        outgoing = _collect_outgoing(filepath, content, fm=fm)
+
+        for t in outgoing:
+            all_linked_targets.add(t)
 
         if outgoing:
             link_graph[rel_path] = sorted(set(outgoing))
+
+    # External linkers: files/dirs outside the vault that link IN.
+    # Their targets count toward inbound but they are NOT vault files themselves.
+    if external_linkers:
+        for ext_path, ext_content in _walk_external_linkers(external_linkers):
+            ext_fm = parse_frontmatter(ext_content)
+            for t in _collect_outgoing(ext_path, ext_content, fm=ext_fm):
+                all_linked_targets.add(t)
 
     all_files = {str(f.relative_to(base)).replace("\\", "/") for f in md_files}
     orphans = sorted(all_files - all_linked_targets)
