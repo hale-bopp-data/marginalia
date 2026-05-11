@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 SKIP_DIRS = {".git", "node_modules", ".obsidian", "__pycache__", "dist", "build", ".cache", ".trash"}
@@ -527,7 +527,7 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None, scann
                     if norm_path.startswith(pfx + "/") or norm_path.startswith(pfx.lower() + "/"):
                         suggested = _PATH_DOMAIN_MAP[pfx]
                         break
-                fix_hint = (f"Run: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply"
+                fix_hint = ("Run: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply"
                             if suggested else
                             "Run: marginalia tags <vault> --analyze to get LLM suggestions")
                 issues.append({
@@ -614,9 +614,9 @@ def scan_file(filepath, vault_path, file_index=None, required_fields=None, scann
         resolved = filepath.parent / link_path
         if not resolved.exists():
             if file_index:
-                suggested_rel, suggested_full = suggest_correct_path(filepath, link_path, file_index)
+                suggested_rel, _suggested_full = suggest_correct_path(filepath, link_path, file_index)
             else:
-                suggested_rel, suggested_full = None, None
+                suggested_rel, _suggested_full = None, None
             if suggested_rel:
                 issues.append({
                     "file": rel_path, "type": "stale_link", "line": line_num,
@@ -903,7 +903,6 @@ def rationalize_tags(vault_path, taxonomy_path=None):
     Returns dict with proposed changes + reasoning.
     """
     from .brain import _llm_call, is_available
-    from .tags import load_taxonomy
 
     if not is_available():
         return {"error": "No LLM configured. Set OPENROUTER_API_KEY or configure openrouter.sh connector."}
@@ -1137,12 +1136,6 @@ def build_tag_dictionary(vault_path, file_index=None):
     auto_resolved = []
     pattern_merges = []
 
-    # All canonical values for pattern matching
-    all_canonical = set()
-    for ns_name, ns_vals in ns_values.items():
-        for v in ns_vals:
-            # ns_vals maps value → [full_tags], extract the namespace
-            pass
     # Build ns→values from entries
     ns_canonical = {}
     for e in namespaced:

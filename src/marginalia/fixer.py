@@ -12,14 +12,12 @@ Giro 7: Frontmatter Quality — fix stale drafts, placeholder summaries, empty f
 Each giro reads the state left by the previous one (no stale data).
 """
 
-import os
 import re
-import json
 from pathlib import Path
 from datetime import date, datetime, timezone
 
 from .scanner import find_md_files, parse_frontmatter, extract_tags, build_file_index, suggest_correct_path
-from .tags import load_taxonomy, migrate_tag, fix_tags_in_file
+from .tags import load_taxonomy, fix_tags_in_file
 
 
 def _read_file(filepath):

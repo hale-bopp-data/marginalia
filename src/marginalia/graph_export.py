@@ -14,7 +14,6 @@ PBI #971 — Graph RAG: Marginalia + Cartografo + Hybrid Search
 Bug #1418 — Layer 5 (canonical_sources) added to prevent RAG source fabrication
 """
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
