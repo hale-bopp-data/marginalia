@@ -234,6 +234,21 @@ The output includes backlinks (reverse index), per-file tag index, and metadata 
 marginalia css ~/my-vault/ > tags.css
 ```
 
+### `schema` — Wiki blueprint for LLM agents
+
+```bash
+marginalia schema init ~/my-vault/             # create schema.md template
+marginalia schema validate ~/my-vault/         # check schema claims vs reality
+marginalia schema validate ~/my-vault/ --strict   # exit 1 on any discrepancy
+marginalia schema show ~/my-vault/ --json      # parsed schema as object
+```
+
+Creates and validates `schema.md` at the vault root — a single document, readable by both humans and LLMs, that declares the vault's structure and conventions (`vault_purpose`, `entity_paths`, `concept_paths`, `synthesis_paths`, `raw_paths`, `required_frontmatter`, `tag_taxonomy_ref`, `page_types`).
+
+Agents load `schema.md` to orient themselves *before* writing into the vault, instead of inventing their own conventions. `validate` reports any drift between what the schema declares and what the vault actually contains — declared directories that don't exist, files missing required frontmatter (raw paths excluded), or a `tag_taxonomy_ref` that doesn't resolve.
+
+This is the foundation of the **LLM-Wiki growth loop** (implements [Karpathy's gist `442a6bf`](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)) on top of marginalia's existing analytic engine. The companion `log`, `ingest`, and `query` commands ship alongside `schema` to close the loop.
+
 ### `ai` — AI-powered analysis
 
 ```bash

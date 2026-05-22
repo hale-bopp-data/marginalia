@@ -1451,6 +1451,77 @@ def cmd_layer(args):
     sys.exit(0)
 
 
+def cmd_schema(args):
+    """Wiki schema blueprint — Karpathy LLM-Wiki pattern (AB#2188)."""
+    from . import schema as schema_mod
+    action = getattr(args, "action", None)
+    if action not in ("init", "validate", "show"):
+        print("Usage: marginalia schema {init, validate, show} <vault>", file=sys.stderr)
+        sys.exit(2)
+    vault = _ensure_vault(args.vault)
+
+    if action == "init":
+        result = schema_mod.init_schema(vault, force=getattr(args, "force", False))
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            if result["action"] == "skipped":
+                print(f"marginalia schema init — SKIPPED")
+                print(f"  {result['path']}")
+                print(f"  {result['reason']}")
+                sys.exit(1)
+            else:
+                print(f"marginalia schema init — {result['action'].upper()}")
+                print(f"  {result['path']}")
+                print(f"  Next: edit purpose + paths, then run 'marginalia schema validate'")
+        return
+
+    if action == "show":
+        result = schema_mod.show_schema(vault)
+        if result["status"] == "missing":
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            else:
+                print(f"marginalia schema show — no schema.md at {result['path']}", file=sys.stderr)
+                print(f"  Run: marginalia schema init {vault}", file=sys.stderr)
+            sys.exit(1)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            fm = result["frontmatter"]
+            print(f"marginalia schema show — {result['path']}")
+            for k, v in fm.items():
+                print(f"  {k}: {v}")
+        return
+
+    # action == "validate"
+    result = schema_mod.validate_schema(vault)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        if result["status"] == "missing":
+            print(f"marginalia schema validate — MISSING", file=sys.stderr)
+            print(f"  {result['message']}", file=sys.stderr)
+            sys.exit(1)
+        status_label = "OK" if result["status"] == "ok" else "ISSUES"
+        print(f"marginalia schema validate — {status_label}")
+        print(f"  vault:  {result['vault']}")
+        print(f"  schema: {result['schema_path']}")
+        print(f"  files checked: {result['files_checked']}\n")
+        for chk in result["checks"]:
+            mark = "PASS" if chk["passed"] else "FAIL"
+            print(f"  [{mark}] {chk['check']} ({chk['field']}={chk['value']}) -- {chk['detail']}")
+        missing = result["missing_frontmatter_files"]
+        if missing:
+            print(f"\n  Files missing required frontmatter ({len(missing)}):")
+            for path, fields in list(missing.items())[:10]:
+                print(f"    {path}: missing {', '.join(fields)}")
+            if len(missing) > 10:
+                print(f"    ... and {len(missing) - 10} more")
+    if getattr(args, "strict", False) and result["status"] != "ok":
+        sys.exit(1)
+
+
 def _print_layer_classify(result):
     stats = result["stats"]
     classification = result["classification"]
@@ -1688,6 +1759,24 @@ def main():
     plr.add_argument("--top-k", type=int, default=5, help="Max results per layer (default: 5)")
     plr.add_argument("--json", action="store_true")
 
+    # schema: Karpathy LLM-Wiki blueprint (AB#2188)
+    p = sub.add_parser("schema", help="Wiki schema blueprint (LLM-Wiki pattern, Karpathy gist 442a6bf)")
+    schema_sub = p.add_subparsers(dest="action")
+
+    psi = schema_sub.add_parser("init", help="Create schema.md template at vault root")
+    psi.add_argument("vault", nargs="?", default=".")
+    psi.add_argument("--force", action="store_true", help="Overwrite schema.md if it exists")
+    psi.add_argument("--json", action="store_true")
+
+    psv = schema_sub.add_parser("validate", help="Check schema claims match actual vault state")
+    psv.add_argument("vault", nargs="?", default=".")
+    psv.add_argument("--strict", action="store_true", help="Exit 1 on any discrepancy (CI guardrail)")
+    psv.add_argument("--json", action="store_true")
+
+    pss = schema_sub.add_parser("show", help="Print parsed schema as object")
+    pss.add_argument("vault", nargs="?", default=".")
+    pss.add_argument("--json", action="store_true")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1701,7 +1790,8 @@ def main():
             "validate": cmd_validate, "graph-export": cmd_graph_export,
             "validate-handoff": cmd_validate_handoff,
             "types": cmd_types,
-            "layer": cmd_layer}
+            "layer": cmd_layer,
+            "schema": cmd_schema}
     cmds[args.command](args)
 
 
