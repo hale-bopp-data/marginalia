@@ -5,15 +5,15 @@ tags: []
 
 # AGENTS.md — hale-bopp-marginalia
 
-> Plugin Obsidian per gestione sessioni AI: apertura, chiusura, context tracking.
+> Scanner di qualita per vault Markdown: Obsidian, accademici, team di documentazione.
 > Guardrails e regole: vedi `.cursorrules` nello stesso repo.
 > Workspace map: vedi `easyway/infra/factory-vcs.json` (SSoT repo map, branch strategy, deploy metadata).
 
 ## Identità
 | Campo | Valore |
 |---|---|
-| Cosa | Plugin TypeScript per Obsidian — session management, closeout automation |
-| Linguaggio | TypeScript, Python (CLI) |
+| Cosa | Python CLI per quality scanning di vault Markdown, con wrapper plugin Obsidian (TypeScript) |
+| Linguaggio | Python, TypeScript (wrapper Obsidian) |
 | Branch | `feature/* -> develop -> main` (target da `factory-vcs.json`) |
 
 
@@ -42,7 +42,7 @@ pyproject.toml       # Python package metadata
 | Regola | Dettaglio |
 |---|---|
 | Plugin | Obsidian: build con esbuild |
-| CLI | Python: `marginalia` command per session management |
+| CLI | Python: `marginalia` command per vault quality scanning |
 | Test | plugin in Obsidian dev vault prima di rilasciare |
 
 ## Workflow & Connessioni
