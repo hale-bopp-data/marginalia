@@ -31,6 +31,10 @@ classifiers = [
 
 [project.scripts]
 marginalia = "marginalia.cli:main"
+marginalia-mcp = "marginalia.mcp_server:main"
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
