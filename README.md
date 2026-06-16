@@ -338,6 +338,53 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 
 ---
 
+## MCP Server
+
+marginalia can serve its tag-graph and scan status as an MCP (Model Context Protocol) server, giving AI coding agents structured access to vault knowledge.
+
+### Install
+
+```bash
+pip install "marginalia[mcp]"
+```
+
+### Usage
+
+```bash
+# Start the MCP server (stdio transport — default)
+marginalia-mcp --vault /path/to/your/vault
+```
+
+### Agent configuration
+
+Add to your `.mcp.json` (Claude Code, Cursor, Codex, OpenCode):
+
+```json
+{
+  "mcpServers": {
+    "marginalia-mcp": {
+      "command": "cmd",
+      "args": ["/c", "marginalia-mcp", "--vault", "C:\\path\\to\\vault"]
+    }
+  }
+}
+```
+
+### Tools exposed
+
+| Tool | Description | Key use case |
+|------|-------------|-------------|
+| `scan_status` | Vault quality snapshot: files, tags, links, orphans, clusters, hubs | Agent checks wiki health before mutating |
+| `query_tags` | Find files by exact tag or browse by namespace (e.g. `domain/`) | Agent finds all docs in a knowledge domain |
+| `get_related` | Outgoing links + backlinks + tag affinity for a file | Agent discovers connected content |
+| `list_orphans` | Orphan files with suggested parent links (sibling pattern) | Agent finds unlinked content to integrate |
+
+### Why MCP?
+
+Without MCP, an agent must read Markdown files one by one and parse frontmatter manually — slow and context-heavy. With MCP, the agent asks `query_tags(namespace="domain")` and gets a structured answer in one call. Same pattern as graphify-8 `serve.py`.
+
+---
+
 ## For whom?
 
 - **Students** — Keep your thesis vault clean: frontmatter, links, tag structure
@@ -345,6 +392,7 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 - **Documentation teams** — Enforce quality gates on Markdown wikis
 - **Obsidian users** — Find broken links, orphan notes, hierarchy issues, get automatic link suggestions
 - **AI/RAG builders** — Export a multi-layer knowledge graph (`graph-export`) to power context-aware retrieval pipelines
+- **AI agent developers** — Expose vault knowledge via MCP tools (`marginalia-mcp`) for agentic workflows
 
 ---
 
