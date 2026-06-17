@@ -151,6 +151,131 @@ def _list_orphans(vault_path: str, max_results: int = 30) -> dict:
     }
 
 
+def _unified_graph_query(graph_path: str, query: str, depth: int = 2,
+                          include_cross_links: bool = True) -> dict:
+    """Query unified-graph.json: search nodes/edges, traverse dependencies (PBI #2984)."""
+    ug_file = Path(graph_path)
+    if not ug_file.exists():
+        return {"error": f"Unified graph not found: {graph_path}", "status": "unavailable"}
+
+    try:
+        ug = json.loads(ug_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        return {"error": f"Failed to load unified graph: {e}", "status": "error"}
+
+    nodes = ug.get("nodes", [])
+    edges = ug.get("edges", [])
+    meta = ug.get("meta", {})
+
+    q = query.lower()
+
+    # Search nodes
+    matched_nodes = []
+    for n in nodes:
+        nid = (n.get("id") or "").lower()
+        nlabel = (n.get("label") or "").lower()
+        ntype = (n.get("type") or "").lower()
+        if q in nid or q in nlabel or q in ntype:
+            matched_nodes.append(n)
+
+    if not matched_nodes:
+        return {
+            "query": query,
+            "matched_nodes": 0,
+            "graph_meta": {
+                "total_nodes": meta.get("total_nodes", 0),
+                "total_edges": meta.get("total_edges", 0),
+                "kg_available": meta.get("kg_available", False),
+                "built_at": meta.get("built_at", ""),
+            },
+            "hint": f"No nodes match '{query}'. Try a broader term or check graph_path.",
+        }
+
+    # For each matched node, collect edges up to depth
+    matched_ids = {n["id"] for n in matched_nodes}
+    result_nodes = {}
+    result_edges = []
+
+    # BFS traversal
+    frontier = set(matched_ids)
+    visited = set()
+    for _ in range(depth + 1):
+        next_frontier = set()
+        for e in edges:
+            src = e.get("source", "")
+            tgt = e.get("target", "")
+            eg_type = e.get("type", "")
+            eg_source = e.get("source_graph", "")
+
+            # Skip cross-links if not requested
+            if eg_source == "cross" and not include_cross_links:
+                continue
+
+            if src in frontier or tgt in frontier:
+                result_edges.append(e)
+                if src not in visited:
+                    next_frontier.add(src)
+                if tgt not in visited:
+                    next_frontier.add(tgt)
+
+        visited.update(frontier)
+        frontier = next_frontier - visited
+        if not frontier:
+            break
+
+    # Collect all nodes referenced by result edges
+    all_ids = set()
+    for e in result_edges:
+        all_ids.add(e.get("source", ""))
+        all_ids.add(e.get("target", ""))
+
+    for n in nodes:
+        if n["id"] in all_ids:
+            result_nodes[n["id"]] = {
+                "id": n["id"],
+                "label": n.get("label", n["id"]),
+                "type": n.get("type", "unknown"),
+                "source": n.get("source", "unknown"),
+                "properties": n.get("properties", {}),
+            }
+
+    # Blast radius: incoming edges (who depends on matched nodes)
+    blast_radius = []
+    for e in edges:
+        if e.get("target") in matched_ids and e.get("source") not in matched_ids:
+            src_id = e["source"]
+            src_node = next((n for n in nodes if n["id"] == src_id), None)
+            blast_radius.append({
+                "source": src_id,
+                "label": src_node.get("label", src_id) if src_node else src_id,
+                "type": e.get("type", "unknown"),
+                "source_graph": e.get("source_graph", "unknown"),
+            })
+
+    # Edge type breakdown
+    edge_types = {}
+    for e in result_edges:
+        t = e.get("type", "unknown")
+        edge_types[t] = edge_types.get(t, 0) + 1
+
+    return {
+        "query": query,
+        "matched_nodes": len(matched_nodes),
+        "matched": [{"id": n["id"], "label": n.get("label", n["id"]), "type": n.get("type", "unknown")}
+                    for n in matched_nodes[:20]],
+        "nodes": list(result_nodes.values()),
+        "edges": result_edges,
+        "blast_radius": blast_radius,
+        "edge_types": edge_types,
+        "graph_meta": {
+            "total_nodes": meta.get("total_nodes", 0),
+            "total_edges": meta.get("total_edges", 0),
+            "kg_available": meta.get("kg_available", False),
+            "built_at": meta.get("built_at", ""),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # MCP Server — graphify-8 pattern
 # ---------------------------------------------------------------------------
@@ -237,6 +362,41 @@ def _build_server(vault_path: str):
                     },
                 },
             ),
+            types.Tool(
+                name="unified_graph_query",
+                description=(
+                    "Query the unified graph (Marginalia + Cartografo KG merge, PBI #2983). "
+                    "Search nodes by id/label/type, traverse edges up to configurable depth, "
+                    "compute blast radius (who depends on matched nodes). Returns matched nodes, "
+                    "related edges, edge type breakdown, and cross-graph links. "
+                    "Use for impact analysis, dependency mapping, and discovering structural + "
+                    "semantic connections in the EasyWay knowledge graph."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {
+                            "type": "string",
+                            "description": "Path to unified-graph.json (default: kb/unified-graph.json).",
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search term (matches node id, label, or type).",
+                        },
+                        "depth": {
+                            "type": "integer",
+                            "default": 2,
+                            "description": "Graph traversal depth from matched nodes (default: 2).",
+                        },
+                        "include_cross_links": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Include cross-graph edges (documented_by, canonical_of) in results (default: true).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
         ]
 
     # Handler dispatch table
@@ -266,6 +426,16 @@ def _build_server(vault_path: str):
             _list_orphans(
                 args.get("vault", default_vault),
                 max_results=args.get("max_results", 30),
+            ),
+            indent=2,
+            ensure_ascii=False,
+        ),
+        "unified_graph_query": lambda args: json.dumps(
+            _unified_graph_query(
+                graph_path=args.get("graph_path", str(Path(default_vault).parent / "kb" / "unified-graph.json")),
+                query=args["query"],
+                depth=args.get("depth", 2),
+                include_cross_links=args.get("include_cross_links", True),
             ),
             indent=2,
             ensure_ascii=False,
