@@ -25,6 +25,8 @@ ewctl commit
 pip install -e .
 # Run CLI
 marginalia scan C:\EW\easyway\wiki
+# Generate unified graph (Marginalia + Cartografo KG merge, PBI #2983)
+marginalia unified-graph C:\EW\easyway\wiki --kg <kg.json> --ew-aware -o unified-graph.json
 # Start MCP server (stdio)
 marginalia-mcp --vault C:\EW\easyway\wiki
 # Run tests
