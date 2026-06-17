@@ -813,6 +813,56 @@ def cmd_fix_tags(args):
     sys.exit(0)
 
 
+def cmd_unified_graph(args):
+    """Export unified graph merging Marginalia wiki graph + Cartografo KG (PBI #2983)."""
+    from .graph_export import export_unified_graph
+    vault = _ensure_vault(args.vault)
+    print(f"marginalia {__version__} -- Unified Graph (unified-graph.json)", file=sys.stderr)
+    print(f"Vault: {vault}", file=sys.stderr)
+
+    kg_path = getattr(args, "kg", None)
+    if kg_path:
+        print(f"KG:    {kg_path}", file=sys.stderr)
+
+    ew_aware = bool(getattr(args, "ew_aware", False)) and not bool(getattr(args, "no_ew_aware", False))
+    result = export_unified_graph(
+        vault,
+        kg_path=kg_path,
+        min_shared_tags=args.min_tags,
+        top_k_similar=args.top_k,
+        min_similarity=args.min_similarity,
+        ew_aware=ew_aware,
+        external_linkers=getattr(args, "external_linkers", None),
+        vault_root_prefix=getattr(args, "vault_root_prefix", None),
+    )
+
+    meta = result["meta"]
+    print(f"  Wiki nodes:     {meta['files_scanned']} docs", file=sys.stderr)
+    print(f"  Wiki edges:     {meta['link_graph_edges'] + meta['tag_affinity_pairs'] + meta['similarity_entries']}", file=sys.stderr)
+    print(f"  KG nodes:       {meta['kg_nodes']}", file=sys.stderr)
+    print(f"  KG edges:       {meta['kg_edges']}", file=sys.stderr)
+    print(f"  Canonical:      {meta['canonical_entities']} entities", file=sys.stderr)
+    print(f"  Cross edges:    documented_by links", file=sys.stderr)
+    print(f"  Total:          {meta['total_nodes']} nodes, {meta['total_edges']} edges", file=sys.stderr)
+    if meta.get("warnings"):
+        for w in meta["warnings"]:
+            print(f"  WARNING:        {w}", file=sys.stderr)
+    if not meta["kg_available"]:
+        print(f"  MODE:           marginalia-only (no Cartografo KG)", file=sys.stderr)
+
+    output = json.dumps(result, ensure_ascii=False, indent=2)
+
+    if args.json:
+        print(output, flush=True)
+    else:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(output, encoding="utf-8")
+        print(f"  Written to:     {out_path}", file=sys.stderr)
+
+    sys.exit(0)
+
+
 def cmd_graph_export(args):
     """Export consolidated wiki knowledge graph for RAG expansion (PBI #971)."""
     from .graph_export import export_wiki_graph
@@ -1726,15 +1776,29 @@ def main():
     p.add_argument("--top-k", type=int, default=5, help="Top-K similar docs per file (default: 5)")
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
-    # PBI #1966 — EW-aware link extraction
     p.add_argument("--ew-aware", action="store_true",
                    help="Enable EW-aware link extraction: backtick code path, frontmatter related/superseded_by/see_also/parent/children/documents")
     p.add_argument("--no-ew-aware", action="store_true",
-                   help="Explicitly disable EW-aware mode (overrides --ew-aware; for edge-case override)")
+                   help="Explicitly disable EW-aware mode (overrides --ew-aware)")
     p.add_argument("--external-linkers", nargs="+", metavar="PATH",
-                   help="External files/dirs that may link into the vault (e.g. CLAUDE.md, AGENTS.md). Walked at depth<=3, skips .git/.obsidian/node_modules/_worktrees")
+                   help="External files/dirs that may link into the vault")
     p.add_argument("--vault-root-prefix", metavar="STR",
-                   help="Workspace-root prefix to strip from absolute link paths (e.g. 'easyway/wiki/')")
+                   help="Workspace-root prefix to strip from absolute link paths")
+
+    p = sub.add_parser("unified-graph", help="Export unified graph merging Marginalia wiki + Cartografo KG (PBI #2983)")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("-o", "--out", default="unified-graph.json", help="Output file path (default: unified-graph.json)")
+    p.add_argument("--kg", help="Path to Cartografo knowledge-graph.json (optional; graceful degradation if missing)")
+    p.add_argument("--min-tags", type=int, default=2, help="Min shared tags for affinity (default: 2)")
+    p.add_argument("--top-k", type=int, default=5, help="Top-K similar docs per file (default: 5)")
+    p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
+    p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
+    p.add_argument("--ew-aware", action="store_true", help="Enable EW-aware link extraction")
+    p.add_argument("--no-ew-aware", action="store_true", help="Explicitly disable EW-aware mode")
+    p.add_argument("--external-linkers", nargs="+", metavar="PATH",
+                   help="External files/dirs that may link into the vault")
+    p.add_argument("--vault-root-prefix", metavar="STR",
+                   help="Workspace-root prefix to strip from absolute link paths")
 
     p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
     p.add_argument("vault", nargs="?", default=".")
@@ -1788,6 +1852,7 @@ def main():
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
             "validate": cmd_validate, "graph-export": cmd_graph_export,
+            "unified-graph": cmd_unified_graph,
             "validate-handoff": cmd_validate_handoff,
             "types": cmd_types,
             "layer": cmd_layer,
