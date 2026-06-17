@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .scanner import build_graph, find_md_files
 from .discovery import discover_orphan_homes, discover_tag_affinity
+from .graph_export import build_dependency_matrix
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +398,39 @@ def _build_server(vault_path: str):
                     "required": ["query"],
                 },
             ),
+            types.Tool(
+                name="dependency_matrix",
+                description=(
+                    "Build a cross-tabulation dependency matrix from unified-graph.json (PBI #2986). "
+                    "Shows who-depends-on-whom as rows/columns with pairwise dependency counts. "
+                    "Filterable by node type (agent, document, repo, pipeline, config). "
+                    "Use for dispatch routing, blast radius overview, and pettegola mode."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {
+                            "type": "string",
+                            "description": "Path to unified-graph.json.",
+                        },
+                        "node_types": {
+                            "type": "string",
+                            "description": "Filter by node types, comma-separated (e.g. 'agent,document'). Omit for all types.",
+                        },
+                        "min_deps": {
+                            "type": "integer",
+                            "default": 1,
+                            "description": "Minimum dependency count to include a row (default: 1).",
+                        },
+                        "top_n": {
+                            "type": "integer",
+                            "default": 50,
+                            "description": "Maximum rows/columns in the matrix (default: 50).",
+                        },
+                    },
+                    "required": ["graph_path"],
+                },
+            ),
         ]
 
     # Handler dispatch table
@@ -436,6 +470,16 @@ def _build_server(vault_path: str):
                 query=args["query"],
                 depth=args.get("depth", 2),
                 include_cross_links=args.get("include_cross_links", True),
+            ),
+            indent=2,
+            ensure_ascii=False,
+        ),
+        "dependency_matrix": lambda args: json.dumps(
+            build_dependency_matrix(
+                graph_path=args["graph_path"],
+                node_types=args.get("node_types", "").split(",") if args.get("node_types") else None,
+                min_deps=args.get("min_deps", 1),
+                top_n=args.get("top_n", 50),
             ),
             indent=2,
             ensure_ascii=False,
