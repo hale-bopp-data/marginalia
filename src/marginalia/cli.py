@@ -863,6 +863,52 @@ def cmd_unified_graph(args):
     sys.exit(0)
 
 
+def cmd_chronicle_compile(args):
+    """Compile chronicle from existing traces — handoffs, git log, PR descriptions (PBI #2987)."""
+    from .chronicle_compiler import compile_chronicle
+
+    result = compile_chronicle(
+        traces_dir=args.traces_dir,
+        repo_paths=args.repos.split(",") if args.repos else None,
+        session_prefix=args.session,
+        since_days=args.since,
+        output_path=args.out,
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        ts = result["trace_sources"]
+        print(f"marginalia {__version__} -- Chronicle Compiler (PBI #2987)")
+        print(f"Compiled: {result['compiled_at']}")
+        print(f"Sources:  {ts['handoffs_found']} handoffs, {ts['commits_scanned']} commits in {ts['repos_scanned']} repos (last {ts['since_days']}d)")
+        print()
+
+        if result["gaps"]:
+            print(f"Gaps ({result['gap_count']}):")
+            for g in result["gaps"][:10]:
+                print(f"  ! {g}")
+            print()
+
+        print(f"Sessions ({len(result['sessions'])}):")
+        for s in result["sessions"][:15]:
+            wi_list = ", ".join(f"#{w}" for w in s["wi_refs"][:5])
+            pr_list = ", ".join(f"#{p}" for p in s["pr_refs"][:3])
+            print(f"  {s['session']:8s}  {s['task'][:80]}")
+            if wi_list:
+                print(f"           WI: {wi_list}")
+            if pr_list:
+                print(f"           PR: {pr_list}")
+            if s["commits"]:
+                print(f"           commits: {len(s['commits'])}")
+        print()
+
+        if args.out:
+            print(f"Written to: {args.out}")
+
+    sys.exit(0)
+
+
 def cmd_dependency_matrix(args):
     """Build a cross-tabulation dependency matrix from unified-graph.json (PBI #2986)."""
     from .graph_export import build_dependency_matrix
@@ -1864,6 +1910,14 @@ def main():
     p.add_argument("--top-n", type=int, default=50, help="Max rows/columns (default: 50)")
     p.add_argument("--json", action="store_true", help="Output JSON to stdout")
 
+    p = sub.add_parser("chronicle-compile", help="Compile chronicle from traces — handoffs, git log, PR descriptions (PBI #2987)")
+    p.add_argument("--traces-dir", help="Directory containing _handoffs/ (default: C:/EW or ~/)")
+    p.add_argument("--repos", help="Comma-separated git repo paths to scan")
+    p.add_argument("--session", help="Filter by session prefix (e.g. S421)")
+    p.add_argument("--since", type=int, default=60, help="Days of git history (default: 60)")
+    p.add_argument("--out", "-o", help="Output JSON file path")
+    p.add_argument("--json", action="store_true", help="Output JSON to stdout")
+
     p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
     p.add_argument("vault", nargs="?", default=".")
     p.add_argument("--taxonomy", help="Path to types taxonomy YAML (overrides defaults)")
@@ -1918,6 +1972,7 @@ def main():
             "validate": cmd_validate, "graph-export": cmd_graph_export,
             "unified-graph": cmd_unified_graph,
             "dependency-matrix": cmd_dependency_matrix,
+            "chronicle-compile": cmd_chronicle_compile,
             "validate-handoff": cmd_validate_handoff,
             "types": cmd_types,
             "layer": cmd_layer,
