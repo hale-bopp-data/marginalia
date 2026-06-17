@@ -863,6 +863,63 @@ def cmd_unified_graph(args):
     sys.exit(0)
 
 
+def cmd_dependency_matrix(args):
+    """Build a cross-tabulation dependency matrix from unified-graph.json (PBI #2986)."""
+    from .graph_export import build_dependency_matrix
+    graph_path = args.graph
+    node_types = args.types.split(",") if args.types else None
+
+    result = build_dependency_matrix(
+        graph_path,
+        node_types=node_types,
+        min_deps=args.min_deps,
+        top_n=args.top_n,
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        if "error" in result:
+            print(f"ERROR: {result['error']}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"marginalia {__version__} -- Dependency Matrix")
+        print(f"Graph:   {result['graph']}")
+        print(f"Built:   {result['built_at']}")
+        print(f"Nodes:   {result['total_nodes']}  Edges: {result['total_edges']}")
+        print(f"Matrix:  {result['matrix_size']}x{len(result['columns'])}")
+        if node_types:
+            print(f"Filter:  types={node_types}")
+        print()
+
+        if result.get("summary", {}).get("top_dependents"):
+            print("Top dependents (most connections):")
+            for d in result["summary"]["top_dependents"][:10]:
+                print(f"  {d['label'][:50]:50s} {d['deps']:4d} deps")
+            print()
+
+        # Print a compact matrix as text
+        cols = result["columns"][:15]
+        rows = result["rows"][:20]
+        if rows and cols:
+            col_width = 18
+            header = f"{'source \\ target':{col_width}s}"
+            for c in cols:
+                label = c["label"][:col_width - 2]
+                header += f" {label:{col_width - 1}s}"
+            print(header)
+            print("-" * len(header))
+
+            for row in rows:
+                line = f"{row['label'][:col_width - 2]:{col_width}s}"
+                for c in cols:
+                    val = row["dependencies"].get(c["id"], 0)
+                    line += f" {'.' if val == 0 else str(val):>{col_width - 1}s}"
+                print(line)
+
+    sys.exit(0)
+
+
 def cmd_graph_export(args):
     """Export consolidated wiki knowledge graph for RAG expansion (PBI #971)."""
     from .graph_export import export_wiki_graph
@@ -1800,6 +1857,13 @@ def main():
     p.add_argument("--vault-root-prefix", metavar="STR",
                    help="Workspace-root prefix to strip from absolute link paths")
 
+    p = sub.add_parser("dependency-matrix", help="Build dependency matrix (cross-tabulation) from unified-graph.json (PBI #2986)")
+    p.add_argument("graph", help="Path to unified-graph.json")
+    p.add_argument("--types", help="Filter by node types (comma-separated, e.g. agent,document,repo)")
+    p.add_argument("--min-deps", type=int, default=1, help="Min dependencies to include row (default: 1)")
+    p.add_argument("--top-n", type=int, default=50, help="Max rows/columns (default: 50)")
+    p.add_argument("--json", action="store_true", help="Output JSON to stdout")
+
     p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
     p.add_argument("vault", nargs="?", default=".")
     p.add_argument("--taxonomy", help="Path to types taxonomy YAML (overrides defaults)")
@@ -1853,6 +1917,7 @@ def main():
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
             "validate": cmd_validate, "graph-export": cmd_graph_export,
             "unified-graph": cmd_unified_graph,
+            "dependency-matrix": cmd_dependency_matrix,
             "validate-handoff": cmd_validate_handoff,
             "types": cmd_types,
             "layer": cmd_layer,

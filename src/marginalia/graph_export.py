@@ -426,3 +426,100 @@ def export_unified_graph(vault_path, *, kg_path=None,
             "edges": unified_kg_edges,
         } if kg_available else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dependency Matrix — tabella a doppia entrata (PBI #2986)
+# ---------------------------------------------------------------------------
+
+def build_dependency_matrix(graph_path, *, node_types=None, min_deps=1, top_n=50):
+    """Build a cross-tabulation dependency matrix from unified-graph.json.
+
+    Returns rows/columns of nodes and their pairwise dependency counts.
+    Filterable by node type (agent, document, repo, pipeline, config).
+    """
+    ug_file = Path(graph_path)
+    if not ug_file.exists():
+        return {"error": f"Graph not found: {graph_path}"}
+
+    try:
+        ug = json.loads(ug_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        return {"error": f"Failed to load graph: {e}"}
+
+    nodes = ug.get("nodes", [])
+    edges = ug.get("edges", [])
+
+    # Filter nodes by type
+    if node_types:
+        type_set = set(node_types)
+        nodes = [n for n in nodes if n.get("type", "unknown") in type_set]
+        node_ids = {n["id"] for n in nodes}
+        edges = [e for e in edges if e.get("source") in node_ids and e.get("target") in node_ids]
+
+    # Build adjacency map: source -> {target -> count}
+    adj = {}
+    for e in edges:
+        src = e.get("source", "")
+        tgt = e.get("target", "")
+        if src == tgt:
+            continue
+        adj.setdefault(src, {}).setdefault(tgt, 0)
+        adj[src][tgt] += 1
+
+    # Select top nodes by total dependency count (in + out)
+    node_dep_count = {}
+    for src, tgts in adj.items():
+        node_dep_count[src] = node_dep_count.get(src, 0) + sum(tgts.values())
+        for tgt, count in tgts.items():
+            node_dep_count[tgt] = node_dep_count.get(tgt, 0) + count
+
+    top_nodes = sorted(node_dep_count.items(), key=lambda x: -x[1])[:top_n]
+    top_ids = [nid for nid, _ in top_nodes]
+
+    # Build label map
+    label_map = {}
+    type_map = {}
+    for n in nodes:
+        if n["id"] in top_ids:
+            label_map[n["id"]] = n.get("label", n["id"])
+            type_map[n["id"]] = n.get("type", "unknown")
+
+    # Build matrix: rows=sources, cols=targets
+    rows = []
+    for src_id in top_ids:
+        row = {
+            "id": src_id,
+            "label": label_map.get(src_id, src_id),
+            "type": type_map.get(src_id, "unknown"),
+            "total_out": sum(adj.get(src_id, {}).values()),
+            "total_in": sum(v.get(src_id, 0) for v in adj.values()),
+            "dependencies": {},
+        }
+        for tgt_id in top_ids:
+            if tgt_id in adj.get(src_id, {}):
+                row["dependencies"][tgt_id] = adj[src_id][tgt_id]
+        if row["total_out"] >= min_deps or row["total_in"] >= min_deps:
+            rows.append(row)
+
+    columns = [{"id": nid, "label": label_map.get(nid, nid), "type": type_map.get(nid, "unknown")}
+               for nid in top_ids]
+
+    meta = ug.get("meta", {})
+
+    return {
+        "graph": graph_path,
+        "built_at": meta.get("built_at", ""),
+        "total_nodes": len(nodes),
+        "total_edges": len(edges),
+        "matrix_size": len(rows),
+        "node_types": node_types or "all",
+        "columns": columns,
+        "rows": rows,
+        "summary": {
+            "top_dependents": [
+                {"id": nid, "label": label_map.get(nid, nid), "deps": cnt}
+                for nid, cnt in top_nodes[:10]
+            ],
+        },
+    }
