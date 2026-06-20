@@ -16,7 +16,7 @@ from .tags import load_taxonomy, fix_tags_in_file, validate_taxonomy
 from .types import (load_types_taxonomy, discover_misplaced,
                     add_type_to_frontmatter, fix_placement, summarize as types_summarize)
 from .obsidian import check_all as obsidian_check_all
-from .config import load_config, find_config, merge_cli
+from .config import load_config
 from .operator import (
     build_quickstart_blueprint,
     get_catalog,
@@ -224,7 +224,7 @@ def cmd_scan(args):
             result["tag_result"] = tag_result
             print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
         else:
-            print(f"\n--- Tagged for review ---")
+            print("\n--- Tagged for review ---")
             print(f"  Files tagged:  {tag_result['tagged']}")
             print(f"  Already tagged: {tag_result['already']}")
             print(f"  Skipped:       {tag_result['skipped']}")
@@ -235,40 +235,40 @@ def cmd_scan(args):
         domain_issues = by_type.get("missing_domain_tag", 0)
         if domain_issues > strict_threshold:
             if not args.json:
-                print(f"\n--- STRICT MODE FAILED ---")
+                print("\n--- STRICT MODE FAILED ---")
                 print(f"  missing_domain_tag: {domain_issues} (threshold: {strict_threshold})")
-                print(f"  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
+                print("  Fix: marginalia fix <vault> --giri 6 --taxonomy <taxonomy.yml> --apply")
             sys.exit(1)
 
     # --strict-layer: CI guardrail — fail if any layer budget violated
     if args.strict_layer:
         if strict_layer_violations > 0:
             if not args.json:
-                print(f"\n--- STRICT LAYER FAILED ---")
+                print("\n--- STRICT LAYER FAILED ---")
                 print(f"  layer_budget violations: {strict_layer_violations}")
-                print(f"  Fix: reduce file size/pointer density or update taxonomy budget")
+                print("  Fix: reduce file size/pointer density or update taxonomy budget")
             sys.exit(1)
         elif not args.json:
-            print(f"\n--- STRICT LAYER PASSED ---")
-            print(f"  All files within layer budgets.")
+            print("\n--- STRICT LAYER PASSED ---")
+            print("  All files within layer budgets.")
 
     # --strict-quality: CI guardrail — fail if placeholder summaries, stale drafts, or empty fields
     if args.strict_quality:
         quality_issues = by_type.get("summary_todo", 0) + by_type.get("stale_draft", 0) + by_type.get("empty_required_fields", 0)
         if quality_issues > 0:
             if not args.json:
-                print(f"\n--- STRICT QUALITY FAILED ---")
+                print("\n--- STRICT QUALITY FAILED ---")
                 print(f"  Placeholder/stale/empty issues: {quality_issues}")
-                print(f"  Fix: marginalia fix <vault> --giri 7 --apply")
+                print("  Fix: marginalia fix <vault> --giri 7 --apply")
             sys.exit(1)
         elif not args.json:
-            print(f"\n--- STRICT QUALITY PASSED ---")
-            print(f"  No placeholder summaries, stale drafts, or empty fields.")
+            print("\n--- STRICT QUALITY PASSED ---")
+            print("  No placeholder summaries, stale drafts, or empty fields.")
 
     # Nonna Standard: report scores per guide
     if args.standard == "nonna" and nonna_scores:
         if not args.json:
-            print(f"\n--- Nonna Standard ---")
+            print("\n--- Nonna Standard ---")
             below_threshold = []
             for path, (score, checks) in sorted(nonna_scores.items()):
                 bar = "#" * score + "-" * (6 - score)
@@ -284,18 +284,18 @@ def cmd_scan(args):
         nonna_below = sum(1 for s, _ in nonna_scores.values() if s < (args.strict_nonna or 4))
         if args.strict_nonna is not None and nonna_below > 0:
             if not args.json:
-                print(f"\n--- STRICT NONNA FAILED ---")
+                print("\n--- STRICT NONNA FAILED ---")
                 print(f"  {nonna_below} guide(s) below threshold ({args.strict_nonna}/6)")
-                print(f"  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
+                print("  Fix: improve guide structure per Nonna Standard (marginalia scan --standard nonna)")
             sys.exit(1)
 
     # Obsidian tip (always, if issues found and not JSON)
     if all_issues and not args.json:
-        print(f"\n--- Find in Obsidian ---")
+        print("\n--- Find in Obsidian ---")
         print(f"  Search: tag:{REVIEW_TAG}")
         if not getattr(args, "tag", False):
-            print(f"  (run with --tag to auto-tag files with issues)")
-        print(f"  When fixed, run: marginalia untag <vault>")
+            print("  (run with --tag to auto-tag files with issues)")
+        print("  When fixed, run: marginalia untag <vault>")
 
     sys.exit(0 if not all_issues else 1)
 
@@ -323,7 +323,7 @@ def cmd_tags(args):
         # --- Global LLM rationalization: full landscape analysis ---
         print(f"marginalia {__version__} -- Tag Rationalization (LLM Global)\n{'=' * 50}", file=sys.stderr)
         print(f"Vault: {vault}", file=sys.stderr)
-        print(f"Analyzing full tag landscape...\n", file=sys.stderr)
+        print("Analyzing full tag landscape...\n", file=sys.stderr)
 
         result = rationalize_tags(vault, taxonomy_path=taxonomy)
 
@@ -367,17 +367,17 @@ def cmd_tags(args):
             # Proposed YAML
             yml = result.get("proposed_yaml_merges", "")
             if yml:
-                print(f"--- Proposed taxonomy merges (add to taxonomy.yml) ---", file=sys.stderr)
+                print("--- Proposed taxonomy merges (add to taxonomy.yml) ---", file=sys.stderr)
                 print(yml, file=sys.stderr)
 
             if out_path:
                 print(f"\nFull analysis saved to: {out_path}", file=sys.stderr)
 
-            print(f"\nNext steps:", file=sys.stderr)
-            print(f"  1. Review proposals above", file=sys.stderr)
-            print(f"  2. Add accepted merges to taxonomy.yml", file=sys.stderr)
-            print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <yml> --apply", file=sys.stderr)
-            print(f"  4. Run: marginalia fix <vault> --giri 6 --taxonomy <yml> --apply", file=sys.stderr)
+            print("\nNext steps:", file=sys.stderr)
+            print("  1. Review proposals above", file=sys.stderr)
+            print("  2. Add accepted merges to taxonomy.yml", file=sys.stderr)
+            print("  3. Run: marginalia fix-tags <vault> --taxonomy <yml> --apply", file=sys.stderr)
+            print("  4. Run: marginalia fix <vault> --giri 6 --taxonomy <yml> --apply", file=sys.stderr)
         sys.exit(0)
 
     if analyze:
@@ -386,7 +386,7 @@ def cmd_tags(args):
         print(f"Vault: {vault}", file=sys.stderr)
         if taxonomy:
             print(f"Taxonomy: {taxonomy}", file=sys.stderr)
-        print(f"Analyzing pages...\n", file=sys.stderr)
+        print("Analyzing pages...\n", file=sys.stderr)
 
         def _progress(cur, total, name):
             if cur % 10 == 0 or cur == total:
@@ -423,7 +423,7 @@ def cmd_tags(args):
 
             # Show top suggested tags with reasons
             if synonym_map:
-                print(f"\n--- Top suggested tags (with reasoning) ---", file=sys.stderr)
+                print("\n--- Top suggested tags (with reasoning) ---", file=sys.stderr)
                 for entry in synonym_map[:20]:
                     reasons = "; ".join(entry["reasons"][:2]) if entry["reasons"] else "(no reason)"
                     print(f"  {entry['tag']:30s} {entry['count']:3d} pages  |  {reasons[:80]}", file=sys.stderr)
@@ -433,12 +433,12 @@ def cmd_tags(args):
             if out_path:
                 print(f"\nInventory written to: {out_path}", file=sys.stderr)
             else:
-                print(f"\nRun with --out <path> to save inventory", file=sys.stderr)
+                print("\nRun with --out <path> to save inventory", file=sys.stderr)
 
-            print(f"\nNext steps:", file=sys.stderr)
-            print(f"  1. Review inventory: tags with similar reasons = synonyms", file=sys.stderr)
-            print(f"  2. Add merges to taxonomy.yml", file=sys.stderr)
-            print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply", file=sys.stderr)
+            print("\nNext steps:", file=sys.stderr)
+            print("  1. Review inventory: tags with similar reasons = synonyms", file=sys.stderr)
+            print("  2. Add merges to taxonomy.yml", file=sys.stderr)
+            print("  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply", file=sys.stderr)
         sys.exit(0)
 
     # --- Fast mode: read existing frontmatter (no LLM) ---
@@ -517,7 +517,7 @@ def cmd_tags(args):
         # Summary: how much LLM work is eliminated
         remaining = result["flat"] - len(auto_resolved) - len(pattern_merges) - len(prune_candidates)
         if auto_resolved or pattern_merges or prune_candidates:
-            print(f"--- Smart filtering summary ---")
+            print("--- Smart filtering summary ---")
             print(f"  Flat tags:         {result['flat']}")
             print(f"  Auto-resolved:     {len(auto_resolved)}  (apply with --auto-resolve)")
             print(f"  Pattern merges:    {len(pattern_merges)}  (apply with --auto-resolve)")
@@ -552,17 +552,17 @@ def cmd_tags(args):
             except Exception:
                 pass
         pct = round(no_domain / max(active_files, 1) * 100)
-        print(f"--- RAG coverage ---")
+        print("--- RAG coverage ---")
         print(f"  Files without domain/ tag: {no_domain}/{active_files} ({pct}%)")
         if pct > 20:
             print(f"  WARNING: {pct}% of files invisible to RAG domain routing")
         print()
 
-        print(f"For LLM-powered analysis with reasoning: marginalia tags <vault> --analyze")
-        print(f"\nNext steps:")
-        print(f"  1. Review flat tags and synonym candidates above")
-        print(f"  2. Add merges to taxonomy.yml")
-        print(f"  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply")
+        print("For LLM-powered analysis with reasoning: marginalia tags <vault> --analyze")
+        print("\nNext steps:")
+        print("  1. Review flat tags and synonym candidates above")
+        print("  2. Add merges to taxonomy.yml")
+        print("  3. Run: marginalia fix-tags <vault> --taxonomy <taxonomy.yml> --apply")
     sys.exit(0)
 
 
@@ -810,6 +810,159 @@ def cmd_fix_tags(args):
             print(f"  {change}  ({count} files)")
         if dry_run:
             print("\nRun with --apply to execute changes.")
+    sys.exit(0)
+
+
+def cmd_unified_graph(args):
+    """Export unified graph merging Marginalia wiki graph + Cartografo KG (PBI #2983)."""
+    from .graph_export import export_unified_graph
+    vault = _ensure_vault(args.vault)
+    print(f"marginalia {__version__} -- Unified Graph (unified-graph.json)", file=sys.stderr)
+    print(f"Vault: {vault}", file=sys.stderr)
+
+    kg_path = getattr(args, "kg", None)
+    if kg_path:
+        print(f"KG:    {kg_path}", file=sys.stderr)
+
+    ew_aware = bool(getattr(args, "ew_aware", False)) and not bool(getattr(args, "no_ew_aware", False))
+    result = export_unified_graph(
+        vault,
+        kg_path=kg_path,
+        min_shared_tags=args.min_tags,
+        top_k_similar=args.top_k,
+        min_similarity=args.min_similarity,
+        ew_aware=ew_aware,
+        external_linkers=getattr(args, "external_linkers", None),
+        vault_root_prefix=getattr(args, "vault_root_prefix", None),
+    )
+
+    meta = result["meta"]
+    print(f"  Wiki nodes:     {meta['files_scanned']} docs", file=sys.stderr)
+    print(f"  Wiki edges:     {meta['link_graph_edges'] + meta['tag_affinity_pairs'] + meta['similarity_entries']}", file=sys.stderr)
+    print(f"  KG nodes:       {meta['kg_nodes']}", file=sys.stderr)
+    print(f"  KG edges:       {meta['kg_edges']}", file=sys.stderr)
+    print(f"  Canonical:      {meta['canonical_entities']} entities", file=sys.stderr)
+    print(f"  Cross edges:    documented_by links", file=sys.stderr)
+    print(f"  Total:          {meta['total_nodes']} nodes, {meta['total_edges']} edges", file=sys.stderr)
+    if meta.get("warnings"):
+        for w in meta["warnings"]:
+            print(f"  WARNING:        {w}", file=sys.stderr)
+    if not meta["kg_available"]:
+        print(f"  MODE:           marginalia-only (no Cartografo KG)", file=sys.stderr)
+
+    output = json.dumps(result, ensure_ascii=False, indent=2)
+
+    if args.json:
+        print(output, flush=True)
+    else:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(output, encoding="utf-8")
+        print(f"  Written to:     {out_path}", file=sys.stderr)
+
+    sys.exit(0)
+
+
+def cmd_chronicle_compile(args):
+    """Compile chronicle from existing traces — handoffs, git log, PR descriptions (PBI #2987)."""
+    from .chronicle_compiler import compile_chronicle
+
+    result = compile_chronicle(
+        traces_dir=args.traces_dir,
+        repo_paths=args.repos.split(",") if args.repos else None,
+        session_prefix=args.session,
+        since_days=args.since,
+        output_path=args.out,
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        ts = result["trace_sources"]
+        print(f"marginalia {__version__} -- Chronicle Compiler (PBI #2987)")
+        print(f"Compiled: {result['compiled_at']}")
+        print(f"Sources:  {ts['handoffs_found']} handoffs, {ts['commits_scanned']} commits in {ts['repos_scanned']} repos (last {ts['since_days']}d)")
+        print()
+
+        if result["gaps"]:
+            print(f"Gaps ({result['gap_count']}):")
+            for g in result["gaps"][:10]:
+                print(f"  ! {g}")
+            print()
+
+        print(f"Sessions ({len(result['sessions'])}):")
+        for s in result["sessions"][:15]:
+            wi_list = ", ".join(f"#{w}" for w in s["wi_refs"][:5])
+            pr_list = ", ".join(f"#{p}" for p in s["pr_refs"][:3])
+            print(f"  {s['session']:8s}  {s['task'][:80]}")
+            if wi_list:
+                print(f"           WI: {wi_list}")
+            if pr_list:
+                print(f"           PR: {pr_list}")
+            if s["commits"]:
+                print(f"           commits: {len(s['commits'])}")
+        print()
+
+        if args.out:
+            print(f"Written to: {args.out}")
+
+    sys.exit(0)
+
+
+def cmd_dependency_matrix(args):
+    """Build a cross-tabulation dependency matrix from unified-graph.json (PBI #2986)."""
+    from .graph_export import build_dependency_matrix
+    graph_path = args.graph
+    node_types = args.types.split(",") if args.types else None
+
+    result = build_dependency_matrix(
+        graph_path,
+        node_types=node_types,
+        min_deps=args.min_deps,
+        top_n=args.top_n,
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        if "error" in result:
+            print(f"ERROR: {result['error']}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"marginalia {__version__} -- Dependency Matrix")
+        print(f"Graph:   {result['graph']}")
+        print(f"Built:   {result['built_at']}")
+        print(f"Nodes:   {result['total_nodes']}  Edges: {result['total_edges']}")
+        print(f"Matrix:  {result['matrix_size']}x{len(result['columns'])}")
+        if node_types:
+            print(f"Filter:  types={node_types}")
+        print()
+
+        if result.get("summary", {}).get("top_dependents"):
+            print("Top dependents (most connections):")
+            for d in result["summary"]["top_dependents"][:10]:
+                print(f"  {d['label'][:50]:50s} {d['deps']:4d} deps")
+            print()
+
+        # Print a compact matrix as text
+        cols = result["columns"][:15]
+        rows = result["rows"][:20]
+        if rows and cols:
+            col_width = 18
+            header = f"{'source \\ target':{col_width}s}"
+            for c in cols:
+                label = c["label"][:col_width - 2]
+                header += f" {label:{col_width - 1}s}"
+            print(header)
+            print("-" * len(header))
+
+            for row in rows:
+                line = f"{row['label'][:col_width - 2]:{col_width}s}"
+                for c in cols:
+                    val = row["dependencies"].get(c["id"], 0)
+                    line += f" {'.' if val == 0 else str(val):>{col_width - 1}s}"
+                print(line)
+
     sys.exit(0)
 
 
@@ -1331,15 +1484,15 @@ def cmd_validate_handoff(args):
         print(f"  File: {args.file}")
         print(f"  Sections: {len(report['sections_found'])}/{report['sections_expected']}")
         if report["errors"]:
-            print(f"\n  Errors:")
+            print("\n  Errors:")
             for e in report["errors"]:
                 print(f"    [{e['section']}] {e['reason']}")
         if report["warnings"]:
-            print(f"\n  Warnings:")
+            print("\n  Warnings:")
             for w in report["warnings"]:
                 print(f"    [{w['section']}] {w['detail']}")
         if report["valid"]:
-            print(f"\n  All 9 sections present and valid.")
+            print("\n  All 9 sections present and valid.")
     sys.exit(0 if report["valid"] else 1)
 
 
@@ -1449,6 +1602,77 @@ def cmd_layer(args):
     else:
         print("Usage: marginalia layer {classify, resolve} ...", file=sys.stderr)
     sys.exit(0)
+
+
+def cmd_schema(args):
+    """Wiki schema blueprint — Karpathy LLM-Wiki pattern (AB#2188)."""
+    from . import schema as schema_mod
+    action = getattr(args, "action", None)
+    if action not in ("init", "validate", "show"):
+        print("Usage: marginalia schema {init, validate, show} <vault>", file=sys.stderr)
+        sys.exit(2)
+    vault = _ensure_vault(args.vault)
+
+    if action == "init":
+        result = schema_mod.init_schema(vault, force=getattr(args, "force", False))
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            if result["action"] == "skipped":
+                print(f"marginalia schema init — SKIPPED")
+                print(f"  {result['path']}")
+                print(f"  {result['reason']}")
+                sys.exit(1)
+            else:
+                print(f"marginalia schema init — {result['action'].upper()}")
+                print(f"  {result['path']}")
+                print(f"  Next: edit purpose + paths, then run 'marginalia schema validate'")
+        return
+
+    if action == "show":
+        result = schema_mod.show_schema(vault)
+        if result["status"] == "missing":
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            else:
+                print(f"marginalia schema show — no schema.md at {result['path']}", file=sys.stderr)
+                print(f"  Run: marginalia schema init {vault}", file=sys.stderr)
+            sys.exit(1)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+        else:
+            fm = result["frontmatter"]
+            print(f"marginalia schema show — {result['path']}")
+            for k, v in fm.items():
+                print(f"  {k}: {v}")
+        return
+
+    # action == "validate"
+    result = schema_mod.validate_schema(vault)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        if result["status"] == "missing":
+            print(f"marginalia schema validate — MISSING", file=sys.stderr)
+            print(f"  {result['message']}", file=sys.stderr)
+            sys.exit(1)
+        status_label = "OK" if result["status"] == "ok" else "ISSUES"
+        print(f"marginalia schema validate — {status_label}")
+        print(f"  vault:  {result['vault']}")
+        print(f"  schema: {result['schema_path']}")
+        print(f"  files checked: {result['files_checked']}\n")
+        for chk in result["checks"]:
+            mark = "PASS" if chk["passed"] else "FAIL"
+            print(f"  [{mark}] {chk['check']} ({chk['field']}={chk['value']}) -- {chk['detail']}")
+        missing = result["missing_frontmatter_files"]
+        if missing:
+            print(f"\n  Files missing required frontmatter ({len(missing)}):")
+            for path, fields in list(missing.items())[:10]:
+                print(f"    {path}: missing {', '.join(fields)}")
+            if len(missing) > 10:
+                print(f"    ... and {len(missing) - 10} more")
+    if getattr(args, "strict", False) and result["status"] != "ok":
+        sys.exit(1)
 
 
 def _print_layer_classify(result):
@@ -1655,15 +1879,44 @@ def main():
     p.add_argument("--top-k", type=int, default=5, help="Top-K similar docs per file (default: 5)")
     p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
     p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
-    # PBI #1966 — EW-aware link extraction
     p.add_argument("--ew-aware", action="store_true",
                    help="Enable EW-aware link extraction: backtick code path, frontmatter related/superseded_by/see_also/parent/children/documents")
     p.add_argument("--no-ew-aware", action="store_true",
-                   help="Explicitly disable EW-aware mode (overrides --ew-aware; for edge-case override)")
+                   help="Explicitly disable EW-aware mode (overrides --ew-aware)")
     p.add_argument("--external-linkers", nargs="+", metavar="PATH",
-                   help="External files/dirs that may link into the vault (e.g. CLAUDE.md, AGENTS.md). Walked at depth<=3, skips .git/.obsidian/node_modules/_worktrees")
+                   help="External files/dirs that may link into the vault")
     p.add_argument("--vault-root-prefix", metavar="STR",
-                   help="Workspace-root prefix to strip from absolute link paths (e.g. 'easyway/wiki/')")
+                   help="Workspace-root prefix to strip from absolute link paths")
+
+    p = sub.add_parser("unified-graph", help="Export unified graph merging Marginalia wiki + Cartografo KG (PBI #2983)")
+    p.add_argument("vault", nargs="?", default=".")
+    p.add_argument("-o", "--out", default="unified-graph.json", help="Output file path (default: unified-graph.json)")
+    p.add_argument("--kg", help="Path to Cartografo knowledge-graph.json (optional; graceful degradation if missing)")
+    p.add_argument("--min-tags", type=int, default=2, help="Min shared tags for affinity (default: 2)")
+    p.add_argument("--top-k", type=int, default=5, help="Top-K similar docs per file (default: 5)")
+    p.add_argument("--min-similarity", type=float, default=0.35, help="Min TF-IDF similarity score (default: 0.35)")
+    p.add_argument("--json", action="store_true", help="Print JSON to stdout instead of writing file")
+    p.add_argument("--ew-aware", action="store_true", help="Enable EW-aware link extraction")
+    p.add_argument("--no-ew-aware", action="store_true", help="Explicitly disable EW-aware mode")
+    p.add_argument("--external-linkers", nargs="+", metavar="PATH",
+                   help="External files/dirs that may link into the vault")
+    p.add_argument("--vault-root-prefix", metavar="STR",
+                   help="Workspace-root prefix to strip from absolute link paths")
+
+    p = sub.add_parser("dependency-matrix", help="Build dependency matrix (cross-tabulation) from unified-graph.json (PBI #2986)")
+    p.add_argument("graph", help="Path to unified-graph.json")
+    p.add_argument("--types", help="Filter by node types (comma-separated, e.g. agent,document,repo)")
+    p.add_argument("--min-deps", type=int, default=1, help="Min dependencies to include row (default: 1)")
+    p.add_argument("--top-n", type=int, default=50, help="Max rows/columns (default: 50)")
+    p.add_argument("--json", action="store_true", help="Output JSON to stdout")
+
+    p = sub.add_parser("chronicle-compile", help="Compile chronicle from traces — handoffs, git log, PR descriptions (PBI #2987)")
+    p.add_argument("--traces-dir", help="Directory containing _handoffs/ (default: C:/EW or ~/)")
+    p.add_argument("--repos", help="Comma-separated git repo paths to scan")
+    p.add_argument("--session", help="Filter by session prefix (e.g. S421)")
+    p.add_argument("--since", type=int, default=60, help="Days of git history (default: 60)")
+    p.add_argument("--out", "-o", help="Output JSON file path")
+    p.add_argument("--json", action="store_true", help="Output JSON to stdout")
 
     p = sub.add_parser("types", help="Doc placement enforcement — discover misplaced files (PBI #1858)")
     p.add_argument("vault", nargs="?", default=".")
@@ -1688,6 +1941,24 @@ def main():
     plr.add_argument("--top-k", type=int, default=5, help="Max results per layer (default: 5)")
     plr.add_argument("--json", action="store_true")
 
+    # schema: Karpathy LLM-Wiki blueprint (AB#2188)
+    p = sub.add_parser("schema", help="Wiki schema blueprint (LLM-Wiki pattern, Karpathy gist 442a6bf)")
+    schema_sub = p.add_subparsers(dest="action")
+
+    psi = schema_sub.add_parser("init", help="Create schema.md template at vault root")
+    psi.add_argument("vault", nargs="?", default=".")
+    psi.add_argument("--force", action="store_true", help="Overwrite schema.md if it exists")
+    psi.add_argument("--json", action="store_true")
+
+    psv = schema_sub.add_parser("validate", help="Check schema claims match actual vault state")
+    psv.add_argument("vault", nargs="?", default=".")
+    psv.add_argument("--strict", action="store_true", help="Exit 1 on any discrepancy (CI guardrail)")
+    psv.add_argument("--json", action="store_true")
+
+    pss = schema_sub.add_parser("show", help="Print parsed schema as object")
+    pss.add_argument("vault", nargs="?", default=".")
+    pss.add_argument("--json", action="store_true")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1699,9 +1970,13 @@ def main():
             "link": cmd_link, "eval": cmd_eval,
             "ai": cmd_ai, "closeout": cmd_closeout, "session-close": cmd_session_close,
             "validate": cmd_validate, "graph-export": cmd_graph_export,
+            "unified-graph": cmd_unified_graph,
+            "dependency-matrix": cmd_dependency_matrix,
+            "chronicle-compile": cmd_chronicle_compile,
             "validate-handoff": cmd_validate_handoff,
             "types": cmd_types,
-            "layer": cmd_layer}
+            "layer": cmd_layer,
+            "schema": cmd_schema}
     cmds[args.command](args)
 
 

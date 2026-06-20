@@ -12,8 +12,6 @@ The layer definitions come from a taxonomy YAML file — NOT hardcoded.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -378,7 +376,6 @@ def resolve_query(
             "suggested_order": ["L0", "L1", ...],
         }
     """
-    from .linker import _build_corpus as build_linker_index
 
     vault = Path(vault_path)
     taxonomy = load_taxonomy(taxonomy_path)

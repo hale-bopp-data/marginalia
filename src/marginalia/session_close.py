@@ -12,15 +12,11 @@ Usage:
     marginalia session-close 141 --base ~/my-project --write --ai
 """
 
-import json
-import os
 import re
 import subprocess
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-from .closeout import run_closeout, collect_session_data, _discover_repos
+from .closeout import run_closeout, _discover_repos
 
 
 # Default paths relative to base_dir (skipped gracefully if not found).
@@ -60,11 +56,11 @@ def _check_dirty_repos(base_dir):
                 cwd=repo_path, capture_output=True, text=True, timeout=10,
             )
             if result.returncode == 0:
-                lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+                lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
                 if lines:
                     dirty[name] = {
                         "count": len(lines),
-                        "files": [l.strip() for l in lines[:10]],
+                        "files": [line.strip() for line in lines[:10]],
                     }
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
@@ -84,11 +80,11 @@ def _check_unpushed_repos(base_dir):
                 cwd=repo_path, capture_output=True, text=True, timeout=10,
             )
             if result.returncode == 0:
-                lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+                lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
                 if lines:
                     unpushed[name] = {
                         "count": len(lines),
-                        "commits": [l.strip() for l in lines[:5]],
+                        "commits": [line.strip() for line in lines[:5]],
                     }
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue

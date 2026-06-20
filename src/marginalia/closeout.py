@@ -10,10 +10,8 @@ Usage:
 """
 
 import json
-import os
 import re
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -84,7 +82,7 @@ def _git_status_short(repo_path):
         if result.returncode != 0:
             return "unknown"
         lines = result.stdout.strip().split("\n")
-        lines = [l for l in lines if l.strip()]
+        lines = [line for line in lines if line.strip()]
         if not lines:
             return "clean"
         return f"{len(lines)} changed files"

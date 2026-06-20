@@ -234,6 +234,21 @@ The output includes backlinks (reverse index), per-file tag index, and metadata 
 marginalia css ~/my-vault/ > tags.css
 ```
 
+### `schema` — Wiki blueprint for LLM agents
+
+```bash
+marginalia schema init ~/my-vault/             # create schema.md template
+marginalia schema validate ~/my-vault/         # check schema claims vs reality
+marginalia schema validate ~/my-vault/ --strict   # exit 1 on any discrepancy
+marginalia schema show ~/my-vault/ --json      # parsed schema as object
+```
+
+Creates and validates `schema.md` at the vault root — a single document, readable by both humans and LLMs, that declares the vault's structure and conventions (`vault_purpose`, `entity_paths`, `concept_paths`, `synthesis_paths`, `raw_paths`, `required_frontmatter`, `tag_taxonomy_ref`, `page_types`).
+
+Agents load `schema.md` to orient themselves *before* writing into the vault, instead of inventing their own conventions. `validate` reports any drift between what the schema declares and what the vault actually contains — declared directories that don't exist, files missing required frontmatter (raw paths excluded), or a `tag_taxonomy_ref` that doesn't resolve.
+
+This is the foundation of the **LLM-Wiki growth loop** (implements [Karpathy's gist `442a6bf`](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)) on top of marginalia's existing analytic engine. The companion `log`, `ingest`, and `query` commands ship alongside `schema` to close the loop.
+
 ### `ai` — AI-powered analysis
 
 ```bash
@@ -323,6 +338,53 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 
 ---
 
+## MCP Server
+
+marginalia can serve its tag-graph and scan status as an MCP (Model Context Protocol) server, giving AI coding agents structured access to vault knowledge.
+
+### Install
+
+```bash
+pip install "marginalia[mcp]"
+```
+
+### Usage
+
+```bash
+# Start the MCP server (stdio transport — default)
+marginalia-mcp --vault /path/to/your/vault
+```
+
+### Agent configuration
+
+Add to your `.mcp.json` (Claude Code, Cursor, Codex, OpenCode):
+
+```json
+{
+  "mcpServers": {
+    "marginalia-mcp": {
+      "command": "cmd",
+      "args": ["/c", "marginalia-mcp", "--vault", "C:\\path\\to\\vault"]
+    }
+  }
+}
+```
+
+### Tools exposed
+
+| Tool | Description | Key use case |
+|------|-------------|-------------|
+| `scan_status` | Vault quality snapshot: files, tags, links, orphans, clusters, hubs | Agent checks wiki health before mutating |
+| `query_tags` | Find files by exact tag or browse by namespace (e.g. `domain/`) | Agent finds all docs in a knowledge domain |
+| `get_related` | Outgoing links + backlinks + tag affinity for a file | Agent discovers connected content |
+| `list_orphans` | Orphan files with suggested parent links (sibling pattern) | Agent finds unlinked content to integrate |
+
+### Why MCP?
+
+Without MCP, an agent must read Markdown files one by one and parse frontmatter manually — slow and context-heavy. With MCP, the agent asks `query_tags(namespace="domain")` and gets a structured answer in one call. Same pattern as graphify-8 `serve.py`.
+
+---
+
 ## For whom?
 
 - **Students** — Keep your thesis vault clean: frontmatter, links, tag structure
@@ -330,6 +392,7 @@ Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins
 - **Documentation teams** — Enforce quality gates on Markdown wikis
 - **Obsidian users** — Find broken links, orphan notes, hierarchy issues, get automatic link suggestions
 - **AI/RAG builders** — Export a multi-layer knowledge graph (`graph-export`) to power context-aware retrieval pipelines
+- **AI agent developers** — Expose vault knowledge via MCP tools (`marginalia-mcp`) for agentic workflows
 
 ---
 

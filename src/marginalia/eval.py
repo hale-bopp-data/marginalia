@@ -49,8 +49,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .linker import _build_tfidf, _cosine, _tag_overlap, _tokenize, _strip_code, _resolve_vaults
-from .scanner import find_md_files, parse_frontmatter, extract_tags
+from .linker import _build_tfidf, _cosine, _tokenize, _resolve_vaults
+from .scanner import find_md_files
 
 # ---------------------------------------------------------------------------
 # Queries loader (minimal YAML, same approach as config.py)

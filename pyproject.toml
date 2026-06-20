@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marginalia"
-version = "1.2.0"
+version = "1.3.0"
 description = "Markdown vault quality scanner for Obsidian, academics, and documentation teams"
 readme = "README.md"
 license = "MIT"
@@ -31,6 +31,10 @@ classifiers = [
 
 [project.scripts]
 marginalia = "marginalia.cli:main"
+marginalia-mcp = "marginalia.mcp_server:main"
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

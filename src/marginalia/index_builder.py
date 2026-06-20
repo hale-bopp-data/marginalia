@@ -6,7 +6,6 @@ Creates:
 - Orphan index (unlinked files that need attention)
 """
 
-import os
 import re
 from pathlib import Path
 from datetime import datetime, timezone
@@ -61,7 +60,7 @@ def build_master_index(vault_path, output_file=None):
 
     lines = [
         "---",
-        f'title: "Vault Index"',
+        'title: "Vault Index"',
         f'generated: "{datetime.now(timezone.utc).isoformat()}"',
         "tags: [meta/index, meta/generated]",
         "---",
@@ -90,7 +89,6 @@ def build_master_index(vault_path, output_file=None):
             if tags:
                 colored = []
                 for t in tags[:5]:  # max 5 tags in display
-                    color = get_tag_color(t)
                     colored.append(f"`{t}`")
                 tag_display = " " + " ".join(colored)
 
@@ -150,7 +148,7 @@ def build_tag_index(vault_path, output_dir=None):
             "---",
             f'title: "Tag Index: {ns_name}"',
             f'generated: "{datetime.now(timezone.utc).isoformat()}"',
-            f"tags: [meta/index, meta/generated, meta/tag-index]",
+            "tags: [meta/index, meta/generated, meta/tag-index]",
             "---",
             "",
             f"# Tag Index: {ns_name}",
@@ -181,7 +179,7 @@ def build_tag_index(vault_path, output_dir=None):
     if flat_tags:
         lines = [
             "---",
-            f'title: "Tag Index: Unnamespaced"',
+            'title: "Tag Index: Unnamespaced"',
             f'generated: "{datetime.now(timezone.utc).isoformat()}"',
             "tags: [meta/index, meta/generated, meta/tag-index]",
             "---",
@@ -247,7 +245,7 @@ def build_orphan_index(vault_path, output_file=None):
 
     lines = [
         "---",
-        f'title: "Orphan Files Index"',
+        'title: "Orphan Files Index"',
         f'generated: "{datetime.now(timezone.utc).isoformat()}"',
         "tags: [meta/index, meta/generated, meta/orphans]",
         "---",
@@ -299,7 +297,7 @@ def generate_obsidian_css_snippet(output_file=None):
         lines.append(f'  background-color: {color}20;')
         lines.append(f'  color: {color};')
         lines.append(f'  border: 1px solid {color}40;')
-        lines.append(f'}}')
+        lines.append('}')
         lines.append("")
 
     content = "\n".join(lines) + "\n"
